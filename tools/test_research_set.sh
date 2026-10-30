@@ -1,23 +1,30 @@
 #!/usr/bin/env bash
-# Tests for scripts/research-set.sh in a throwaway HOME, with local copies of
-# digest-paper and the demo vault (no network). Run: tools/test_research_set.sh
-# DIGEST_PAPER_SRC and DEMO_VAULT_SRC default to sibling checkouts.
-# DEMO_VAULT_EN_SRC (default: sibling orrery-demo-vault-en) is optional; the
-# --lang en tests are skipped (not the whole file) if it's missing.
+# Tests for scripts/research-set.sh in a throwaway HOME. No demo-vault fork
+# is needed: a small, non-personal fixture tests the install behavior.
+# An existing Obsidian vault is checked read-only (OBSIDIAN_VAULT_SRC).
+# Never archive the user's whole vault: it may contain private notes or keys.
+# DEMO_VAULT_EN_SRC (default: sibling orrery-demo-vault-en) is optional.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 script="${here}/scripts/research-set.sh"
 digest="${DIGEST_PAPER_SRC:-${here}/../orrery-digest-paper}"
-vault_src="${DEMO_VAULT_SRC:-${here}/../orrery-demo-vault}"
+vault_src="${OBSIDIAN_VAULT_SRC:-${HOME}/Documents/Obsidian}"
 vault_en_src="${DEMO_VAULT_EN_SRC:-${here}/../orrery-demo-vault-en}"
-[ -e "$digest/.git" ] && [ -e "$vault_src/.git" ] || { echo "skip: need checkouts of orrery-digest-paper and orrery-demo-vault"; exit 0; }
+[ -e "$digest/.git" ] || { echo "skip: need a local checkout of orrery-digest-paper"; exit 0; }
 have_en_vault=false
 [ -e "$vault_en_src/.git" ] && have_en_vault=true
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 fail() { echo "FAIL: $*"; exit 1; }
-git -C "$vault_src" archive --prefix=orrery-demo-vault-main/ -o "$tmp/vault.tar.gz" HEAD
+fixture="$tmp/vault-fixture/orrery-demo-vault-main"
+mkdir -p "$fixture/00_Inbox" "$fixture/.obsidian/plugins/pdf-mistral-plugin" "$fixture/20_MDPapers" "$fixture/10_Reference/Papers" "$fixture/10_Reference/Notes"
+printf '# Test-only starter vault\n' >"$fixture/00_Inbox/はじめに.md"
+printf '# Test-only instructions\n' >"$fixture/CLAUDE.md"
+printf '{}\n' >"$fixture/.obsidian/app.json"
+example_paper='Onimaru et al. 2016 - The fin-to-limb transition as the re-organization of a Turing pattern.md'
+printf '# Test-only sample paper\n' >"$fixture/20_MDPapers/$example_paper"
+tar -czf "$tmp/vault.tar.gz" -C "$tmp/vault-fixture" orrery-demo-vault-main
 [ "$have_en_vault" = false ] || git -C "$vault_en_src" archive --prefix=orrery-demo-vault-en-main/ -o "$tmp/vault-en.tar.gz" HEAD
 git clone -q "$digest" "$tmp/digest-origin"
 
@@ -55,6 +62,7 @@ out="$(run "$home")" || fail "install: $out"
 [ -f "$home/.agentstack/addons/digest-paper/current/skills/digest-paper/SKILL.md" ] || fail "add-on missing"
 v="$home/Documents/orrery-demo-vault"
 [ -f "$v/00_Inbox/はじめに.md" ] && [ -d "$v/.obsidian" ] || fail "vault not unpacked"
+[ -f "$v/20_MDPapers/$example_paper" ] || fail "sample note missing from extracted vault"
 [ ! -d "$v/.git" ] || fail "vault must not be a git checkout"
 echo "$out" | grep -q "Claude only" || fail "team: $out"
 echo "$out" | grep -q "論文: $v/20_MDPapers/Onimaru" || fail "request paths: $out"
@@ -122,9 +130,9 @@ mkdir -p "$tmp/empty"; printf '#!/bin/sh\nexec "%s" "$@"\n' "$real_tar" >"$tmp/b
 out="$(race "$tmp/empty")"
 [ -f "$tmp/empty/CLAUDE.md" ] || fail "empty folder not used: $out"
 
-# The no-key request names the PDF that the new vault has (P3-2).
+# The no-key request points to the current PDF template, not a stale sample title.
 out="$(run "$tmp/h1")"
-echo "$out" | grep -q "PDF: .*Guo et al. 2024" || fail "Guo PDF not named: $out"
+echo "$out" | grep -q 'PDF: .*10_Reference/Papers/<論文名>.pdf' || fail "no-key PDF template: $out"
 
 # --lang en: the English vault (a different folder; the ja vault above is untouched), English requests.
 if [ "$have_en_vault" = true ]; then
@@ -265,5 +273,21 @@ if out="$(env -i PATH="$tmp/bin:/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin" 
   /bin/bash "$script" 2>&1)"; then fail "an unreadable env.sh after the setup must exit 1: $out"; fi
 echo "$out" | grep -q "could not confirm the saved work folder" || fail "unreadable env.sh after the setup: $out"
 ! echo "$out" | grep -q "NOT changed" || fail "an unknown state was reported as not changed: $out"
+
+# An existing personal Obsidian vault is a separate integration target.
+# Check it read-only; do not pack its real research notes into test archives.
+if [ -d "$vault_src/.obsidian" ] && [ -d "$vault_src/00_Inbox" ]; then
+  home="$tmp/h-personal-vault"
+  mkdir -p "$home/.agentstack/skills/delegate"
+  touch "$home/.agentstack/skills/delegate/SKILL.md"
+  out="$(run "$home" --check --vault-dir "$vault_src")" || fail "personal Obsidian --check: $out"
+  echo "$out" | grep -Fq "$vault_src" || fail "personal vault path not used: $out"
+  echo "$out" | grep -Fq 'kept (already there; not changed)' || fail "personal vault not preserved: $out"
+  echo "ok: personal Obsidian vault (read-only)"
+elif [ -n "${OBSIDIAN_VAULT_SRC:-}" ]; then
+  fail "OBSIDIAN_VAULT_SRC is not an Obsidian vault: $vault_src"
+else
+  echo "skip: optional local Obsidian vault check (no $vault_src)"
+fi
 
 echo "ok: research-set"
