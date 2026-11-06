@@ -6,7 +6,7 @@
 
 ORRERY は `~/.orrery/config.json` と環境変数で設定します。共有設定 file は Finder 起動でも読まれます。環境変数が用意されている項目では、環境変数が同じ項目の設定 file より優先されます。
 
-Codex の代替画面でマウス追跡が無いと確認できた active pane では、ホイールを PageUp / PageDown に変えて会話を遡れます。小さな移動はまとめ、1 回の連続操作は最大 3 ページまでです。Claude Code・通常の shell・マウスを要求する Codex の扱いは変わりません。
+Codex の代替画面でマウス追跡が無いと確認できた active pane では、ホイールを PageUp / PageDown に変えて会話を遡れます。小さな移動はまとめ、240 ms の受付枠ごとに最大 3 ページを送ります。連続操作でも受付枠は更新され、上限を超えた移動量は後から再生しません。Claude Code・通常の shell・マウスを要求する Codex の扱いは変わりません。OS の慣性イベントは通常のホイール入力として扱います。
 
 ## 明示freshの設定（切替準備）
 
@@ -70,6 +70,14 @@ Finder から起動する desktop app と Python backend が同じ file を読�
 **稼働中のbackendには設定が反映されません。** 現在の起動方法と管理元を確認し、その手順で明示的に停止・再起動してください。ORRERY.appを閉じても共有backendは残るため、appを開き直すだけでは反映されないことがあります。管理元が分からない場合は止まり、使用中のポートへの二重起動や一括killはしません。有効化後の送信を伴わない確認と、agent・本人それぞれの手順は[Telemetryのスマホガイド](https://github.com/gyroid-eth/orrery-telemetry/blob/master/docs/mobile.md#スマホからpaneを確認して送る)を参照してください。
 
 戻すときは`false`にするか項目を除き、独自の起動引数に`--enable-mobile-terminal`があればそれも外して、同じ手順で再起動します。
+
+### SettingsのPhone
+
+**Settings → Phone**の**Phone access**と**Send from phone**は、Telemetryの`agentstack-mobile`（既定`~/.agentstack/bin/agentstack-mobile`、`AGENTSTACK_HOME`に従う）を呼びます。cockpitはTelemetryのfileやlaunchdを直接操作しません。backendのroute `GET`・`PUT /telemetry/mobile`は、このcommandの結果を返すだけで、ほかのrouteと同じくloopbackの自分のpageとJSONの書き込みしか受け付けません。phoneからは届きません。
+
+**Send from phone**を切り替えると、このbackendのadapterがその場で切り替わり（再起動なし）、上の`enable_mobile_terminal`も同じ値に書き換えます。ほかのkeyはそのまま残します。fileがJSONとして読めないときは書き換えず、その実行中だけ切り替えます。terminalで`agentstack-mobile off`などを実行した場合は、次にSettingsを開いたときにadapterと`enable_mobile_terminal`が揃います。ただし、手で起動したreaderが8781で動いている間（節に**MANUAL**と出る）と、Settingsを一度も使っていない間は、今までどおり`enable_mobile_terminal`の値のまま変えません。手で起動したreaderでTerminalを使っている人は、更新しても何も変わりません。
+
+demo modeでは、Phoneの節はTailscaleのlogin・スマホで開くaddress・ServeのURLを画面に出しません（demo modeが隠すのはユーザー名と機械名だけです）。そのためloginとaddressはdemo modeでは設定できず、未設定のまま**Phone access**を押すと、スイッチのすぐ下にdemo modeを切って1回設定するよう出ます（**Turn off demo mode**のボタン付き）。設定した後は、demo modeのままオン・オフできます。Telemetryが無いときは、節に「agentstack-mobile was not found」と出ます。手順と制限は[Telemetryのスマホ手順](https://github.com/gyroid-eth/orrery-telemetry/blob/master/docs/mobile.md#cockpitのsettingsからオンにする)を参照してください。
 
 ### Desktop app の environment
 

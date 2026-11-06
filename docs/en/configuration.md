@@ -6,7 +6,7 @@
 
 ORRERY is configured with `~/.orrery/config.json` and environment variables. The shared settings file is also read when the app is launched from Finder. Where a setting has an environment variable, that variable takes precedence over the same item in the file.
 
-In an active Codex pane verified to use the alternate screen without mouse tracking, the wheel sends PageUp / PageDown to scroll the conversation. Small movements accumulate, with at most three pages per continuous gesture; Claude Code, ordinary shells, and Codex panes requesting mouse tracking keep their existing behavior.
+In an active Codex pane verified to use the alternate screen without mouse tracking, the wheel sends PageUp / PageDown to scroll the conversation. Small movements accumulate, with at most three pages per 240 ms input window. The window renews during continuous input; excess movement is discarded rather than replayed later. Claude Code, ordinary shells, and Codex panes requesting mouse tracking keep their existing behavior. Native OS inertia events are treated as ordinary wheel input.
 
 ## Explicit fresh settings (cutover preparation)
 
@@ -70,6 +70,14 @@ Keep the other settings and set only `enable_mobile_terminal` to `true`. `script
 **An already running backend does not pick up the change.** Identify its current launch method and manager, then explicitly stop and restart it through that procedure. Closing ORRERY.app leaves the shared backend running, so reopening the app alone may not apply the setting. Stop if the manager is unknown; do not launch another backend on an occupied port or use blanket kill commands. The [Telemetry mobile guide](https://github.com/gyroid-eth/orrery-telemetry/blob/master/docs/mobile.en.md#inspect-a-pane-and-send-input-from-your-phone) separates agent and human steps and includes a check that sends no input.
 
 To revert, set the field to `false` or remove it, also remove any explicit `--enable-mobile-terminal` from custom launch arguments, and restart through the same procedure.
+
+### Settings → Phone
+
+**Phone access** and **Send from phone** in **Settings → Phone** call Telemetry's `agentstack-mobile` command (by default `~/.agentstack/bin/agentstack-mobile`, following `AGENTSTACK_HOME`). The cockpit never touches Telemetry's files or launchd directly. The backend routes `GET` and `PUT /telemetry/mobile` only return that command's result and, like the other routes, accept only this loopback page and JSON writes. The phone cannot reach them.
+
+Switching **Send from phone** switches this backend's adapter at once (no restart) and writes the same value to `enable_mobile_terminal` above, keeping every other key. If the file cannot be read as JSON it is left untouched and the switch lasts for this run only. A change made in a terminal (`agentstack-mobile off`) reaches the adapter and `enable_mobile_terminal` the next time Settings is opened. While a reader started by hand holds 8781 (the section says **MANUAL**), and until Settings has been used once, `enable_mobile_terminal` stays as you set it, so people who use Terminal with a hand-started reader see no change after updating.
+
+In demo mode the Phone section does not put the Tailscale login, the phone address or the Serve URL on the page (demo mode itself hides only user and host names). So the login and address cannot be set in demo mode: pressing **Phone access** before they are set shows, right under the switch, that demo mode has to be turned off once for the setup (with a **Turn off demo mode** button). After that the switch works in demo mode too. Without Telemetry the section says that agentstack-mobile was not found. For the steps and limits see the [Telemetry phone guide](https://github.com/gyroid-eth/orrery-telemetry/blob/master/docs/mobile.en.md#turn-it-on-from-cockpit-settings).
 
 ### Desktop app environment
 

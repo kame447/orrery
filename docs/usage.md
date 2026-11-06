@@ -153,12 +153,13 @@ header の Settings の左にある `LEFT  CLAUDE 41%  CODEX 47%` の pill は�
 
 pill をクリックすると `Usage left` が開き、provider が返した window を円弧の dial で、reset までの時間つきで並べます。
 
-Settings の `Usage` で、Claude・Codex・DeepSeekなどのproviderごとに表示を切り替えられます。`LEFT` pillと`Usage left`の両方に反映され、非表示の選択はこのbrowserに保存されます。後から追加されたproviderは既定で表示されます。DeepSeekの残高が$5未満の場合は、pillと残高行を低残量と同じ赤で表示します。$5以上や残高不明時の色は変えません。
+Settings の `Usage` で、Claude・Codex・Antigravity（Gemini を含む）・DeepSeekなどのproviderごとに表示を切り替えられます。`LEFT` pillと`Usage left`の両方に反映され、非表示の選択はこのbrowserに保存されます。後から追加されたproviderは既定で表示されます。DeepSeekの残高が$5未満の場合は、pillと残高行を低残量と同じ赤で表示します。$5以上や残高不明時の色は変えません。
 
 ![Usage left。Claude は 5H 64%・7D 41%・FABLE 18%、Codex は 5H 88%・7D 47%。Codex の追加枠 Spark は untouched](images/cockpit_usage_popover.png)
 
 - **Claude**: `5h`（5 時間の枠）、`7d`（週の枠）、モデル別の週の枠（`FABLE` など。サーバーが返したときだけ）
 - **Codex**: `5h`、`7d`。Spark などの名前付きの追加枠は `ADDITIONAL LIMIT` の下に分けて出し、pill の値には使いません。追加枠を全く使っていないときは `untouched · 5h / 7d at 100% left` の 1 行にまとめます
+- **Antigravity（Gemini）**: Telemetry が提供するときだけ表示します。`Gemini Models` の `5H` / `7D` とモデル固有の `ARGON` など、Gemini の枠をほかの provider と同じ円弧 dial で並べます。`Claude and GPT models` は Antigravity の表示から除外します（Telemetry の取得結果は変更しません）。pill は表示対象の Gemini 枠の中で最も残量が少ない割合です。適用される枠は使うモデルにより異なります
 - 数字と輪の色: 50% より上は緑、50% 以下で黄、20% 以下で赤
 - 各 dial の下は reset までの時間（`in 2h 59m`、`in 3d`）。見出しの右は、いちばん早い reset の時刻
 
@@ -168,6 +169,7 @@ Settings の `Usage` で、Claude・Codex・DeepSeekなどのproviderごとに�
 
 - Claude: Claude Code が保持している OAuth token で、Anthropic の usage endpoint を読みます（token は読むだけで、更新や書き戻しはしない）
 - Codex: `codex app-server` の `account/rateLimits/read`
+- Antigravity: ORRERY Telemetry が読み取り専用の `agy -p /usage` で取得した枠を再利用します（cockpit 自身からの追加問い合わせなし）
 - cockpit は 1 分ごと（tab が見えている間）、pill を開いたとき、tab に戻ったときに読み直します。ORRERY backend は同じ値を 60 秒 cache します。provider への問い合わせの頻度は ORRERY Telemetry が決めます（Claude は約 10 分に 1 回）
 
 **古くなったとき・取れないとき**: 取得に失敗した間は、前回の値を残したまま、pill の数字を薄くし、`Usage left` の見出しに `· stale` を付けます。取れない理由は見出しの右に出ます。
@@ -214,7 +216,7 @@ backend は起動時に live tmux session ごとに recorder connection を一�
 
 ### スマホのTerminal（別途有効化）
 
-別のTelemetry mobile readerで、短いpane画面を見ながら確認付きの1行を送れます。backend adapterは既定オフです。[共有設定](configuration.md#スマホterminalを通常の起動で有効にする)の`enable_mobile_terminal`をJSONの`true`にし、現在の起動手順でbackendを明示的に再起動します。稼働中のbackendの再利用だけでは反映されません。reader側にもAPI31・対応する`orrery-mobile-pane-v1` capabilityと別の有効化が必要です。操作に使う自分の端末だけへのアクセス制限を推奨しますが、スマホ・タブレットを複数使えます。agentに任せる段と本人の段は[Telemetryのスマホ手順](https://github.com/gyroid-eth/orrery-telemetry/blob/master/docs/mobile.md)を参照してください。
+別のTelemetry mobile readerで、短いpane画面を見ながら確認付きの1行を送れます。**Settings → Phone**の**Phone access**と**Send from phone**で、readerとこのadapterを一緒に切り替えられます（[設定](configuration.md#settingsのphone)）。手で設定する場合、backend adapterは既定オフです。[共有設定](configuration.md#スマホterminalを通常の起動で有効にする)の`enable_mobile_terminal`をJSONの`true`にし、現在の起動手順でbackendを明示的に再起動します。稼働中のbackendの再利用だけでは反映されません。reader側にもAPI31・対応する`orrery-mobile-pane-v1` capabilityと別の有効化が必要です。操作に使う自分の端末だけへのアクセス制限を推奨しますが、スマホ・タブレットを複数使えます。agentに任せる段と本人の段は[Telemetryのスマホ手順](https://github.com/gyroid-eth/orrery-telemetry/blob/master/docs/mobile.md)を参照してください。
 
 対象はPCの既存managerが扱うlegacy paneだけで、共有target guardとfreshなsocket/server/session/pane/kernel birthを照合します。agent別名からpaneを推測せず、agent起動・別socket/global対象への迂回・Codex起動recordの要求はしません。複数paneは自分で選び、不明はUnavailableです。sessionはreaderの現在のmetadata project外にある場合もあります。
 

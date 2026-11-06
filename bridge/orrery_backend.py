@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import collections
 import contextlib
+import hashlib
 import json
 import os
 import re
@@ -48,6 +50,9 @@ from usage_probe import (
     UsageCache,
     provider_from_quota_payload,
 )
+from conversation_history import (HistoryUnavailable, UnchangedPolls, bound_agent, bound_signature, open_reader)
+from conversation_mail import received as recorded_mail
+from conversation_preview import ReferenceStore, PreviewUnavailable, binding as conversation_binding
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8791
@@ -621,6 +626,7 @@ def merge_spawn_catalog(payload: bytes) -> bytes:
 
 
 HTTP_SESSION_KEY = web.AppKey("http_session", ClientSession)
+CONVERSATION_REFERENCES_KEY = web.AppKey("conversation_references", ReferenceStore)
 TMUX_BIN_KEY = web.AppKey("tmux_bin", LegacyTargetBoundary)
 USAGE_CACHE_KEY = web.AppKey("usage_cache", UsageCache)
 USAGE_LOCKS_KEY = web.AppKey("usage_locks", dict)
@@ -810,7 +816,7 @@ async def _usage_from_dashboard(request: web.Request, cache) -> list[ProviderUsa
     }
 
     if isinstance(entries, list):
-        cache.reported_providers = tuple(p for p in ("dsh",) if p in by_provider)
+        cache.reported_providers = tuple(p for p in ("antigravity", "dsh") if p in by_provider)
     snapshots: list[ProviderUsage] = []
     for provider in USAGE_PROVIDERS + cache.reported_providers:
         entry = by_provider.get(provider)
@@ -821,10 +827,10 @@ async def _usage_from_dashboard(request: web.Request, cache) -> list[ProviderUsa
         snapshot = last if last is not None else ProviderUsage(
             provider, "unavailable", None,
             reason="telemetry_unavailable" if payload is None else "provider_not_reported")
-        # A failed refresh must also replace a still-cached balance; otherwise
-        # the next ordinary request could revive the old amount as current.
+        # Replace old observations so an ordinary request cannot revive them
+        # as current. With nothing observed yet, let the next request retry.
         snapshots.append(cache.put(snapshot, time.time())
-                         if snapshot.measurement_kind == "balance" else snapshot)
+                         if last is not None or snapshot.measurement_kind == "balance" else snapshot)
     return snapshots
 
 
@@ -1438,7 +1444,7 @@ class SessionBridgeManager:
                 await state.bridge.refresh_panes(send_captures=True)
             return
 
-        if message_type not in {"input", "resize", "release", "split", "close"}:
+        if message_type not in {"input", "codex-page", "resize", "release", "split", "close"}:
             await send_error(peer, None, "unsupported message type")
             return
 
@@ -1463,6 +1469,11 @@ class SessionBridgeManager:
                 if proofs is None:raise TargetRefused('FRESH_TARGET_VIEW_CHANGED')
                 data=payload.get('data')
                 if isinstance(data,str):await state.bridge.send_input(pane_id,data,binary=payload.get('binary') is True,proof=proofs[0])
+                return
+            if message_type=='codex-page':
+                proofs=state.bridge._fresh_peer_proofs.get(peer)
+                if proofs is None:raise TargetRefused('FRESH_TARGET_VIEW_CHANGED')
+                await state.bridge.send_codex_page(pane_id,payload.get('direction'),payload.get('count'),proof=proofs[0])
                 return
         if message_type in {"split", "close"}:
             try:
@@ -1774,6 +1785,551 @@ async def proxy_dashboard(request: web.Request) -> web.Response:
             {"error": "dashboard offline"},
             status=502,
         )
+
+
+CONVERSATION_DASHBOARD_KEY = web.AppKey("conversation_dashboard", dict)
+CONVERSATION_UNCHANGED_KEY = web.AppKey("conversation_unchanged", UnchangedPolls)
+DASHBOARD_VERSION_SECONDS = 60.0
+CONVERSATION_WAIT_SECONDS = 25
+CONVERSATION_WAIT_STEP = 0.25
+# Held polls across every page and tab of this cockpit. Each keeps one browser
+# connection open (HTTP/1.1 allows about six per host); a poll beyond the cap
+# is answered at once without `held`, so its client keeps the plain interval.
+CONVERSATION_MAX_HELD = 4
+# A held poll this quiet may give its slot to a reader whose record changed.
+CONVERSATION_QUIET_SECONDS = 2.0
+
+
+async def conversation_live_agents(request: web.Request, *, not_before: float | None = None):
+    """The live roster, sharing one dashboard request among History panes.
+
+    The live roster is the dashboard's most expensive answer (about a second
+    on a busy machine). A pane may join a request that is still in flight; a
+    recheck after a read passes `not_before` so it only joins one that started
+    after its own read finished. Nothing is kept once the answer arrives.
+    """
+    session=request.app[HTTP_SESSION_KEY]
+
+    async def fetch():
+        async with session.get(DASHBOARD_URL + '/api/agents?scope=live') as response:
+            if response.status != 200:
+                return None
+            return await response.json()
+    shared=request.app.get(CONVERSATION_DASHBOARD_KEY)
+    if shared is None:
+        payload=await fetch()
+    else:
+        loop=asyncio.get_running_loop();entry=shared.get('live')
+        if entry is None or entry[1].done() or not_before is not None and entry[0] < not_before:
+            task=asyncio.ensure_future(fetch());entry=(loop.time(),task);shared['live']=entry
+
+            def done(finished,entry=entry):
+                if shared.get('live') is entry:shared.pop('live',None)
+                if not finished.cancelled():finished.exception()
+            task.add_done_callback(done)
+        payload=await asyncio.shield(entry[1])
+    if payload is None:
+        raise HistoryUnavailable('dashboard_unavailable')
+    return payload
+
+
+async def conversation_api_version(request: web.Request, *, hint: bool = False) -> int:
+    """Dashboard API generation; a successful answer is trusted for a minute.
+
+    `hint=True` (only to choose which binding source to try first) may answer
+    with an expired value at once while one shared request refreshes it.
+    Without `hint` (whether non-Codex content may be published), only a value
+    confirmed within DASHBOARD_VERSION_SECONDS counts: an expired one is
+    refreshed and waited for. A failed or malformed answer drops the cached
+    value instead of extending it, and counts as generation 34.
+    """
+    shared=request.app.get(CONVERSATION_DASHBOARD_KEY)
+    now=asyncio.get_running_loop().time()
+    cached=shared.get('version') if shared is not None else None
+    if cached and now-cached[0] < DASHBOARD_VERSION_SECONDS:
+        return cached[1]
+
+    async def fetch():
+        try:
+            async with request.app[HTTP_SESSION_KEY].get(DASHBOARD_URL+'/api/version') as response:
+                version=await response.json() if response.status==200 else {}
+        except BaseException:
+            if shared is not None:shared.pop('version',None)
+            raise
+        value=version.get('api') if isinstance(version,dict) else None
+        if isinstance(value,int) and not isinstance(value,bool):
+            if shared is not None:shared['version']=(asyncio.get_running_loop().time(),value)
+            return value
+        if shared is not None:shared.pop('version',None)  # never extend an old value
+        return 34
+    if shared is None:
+        return await fetch()
+    task=shared.get('version_task')
+    if task is None or task.done():
+        task=asyncio.ensure_future(fetch());shared['version_task']=task
+
+        def done(finished):
+            if shared.get('version_task') is finished:shared.pop('version_task',None)
+            if not finished.cancelled():finished.exception()
+        task.add_done_callback(done)
+    if hint and cached:
+        return cached[1]  # a hint only: the refresh runs behind
+    return await asyncio.shield(task)
+
+
+CONVERSATION_STATS_KEY = web.AppKey("conversation_stats", collections.Counter)
+STAT_NAMES = ("full_reads", "unchanged", "other_session_only", "held_cap_reached", "held_client_gone", "held_taken_over", "held_given_up", "pre_check_skipped",
+              "recent_mismatch", "binding_route", "binding_route_fallback", "roster")
+
+
+def conversation_stats(app) -> "collections.Counter":
+    """This app's History counters, or a throwaway one (apps built in tests)."""
+    found = app.get(CONVERSATION_STATS_KEY)
+    return found if found is not None else collections.Counter()
+
+
+async def serve_conversation_stats(request: web.Request) -> web.Response:
+    """Counts only (no names, paths or content), for an operator to check the
+    behaviour REPORT measured: held polls now, polls answered without a read,
+    reads that skipped the pre-read check, route use and fallbacks."""
+    stats = conversation_stats(request.app)
+    shared = request.app.get(CONVERSATION_DASHBOARD_KEY) or {}
+    return web.json_response(dict({key: stats[key] for key in STAT_NAMES}, held_now=shared.get('held', 0),
+                                  held_cap=CONVERSATION_MAX_HELD), headers={"Cache-Control": "no-store"})
+
+
+DASHBOARD_BINDING_ROUTE_API = 36
+_BINDING_ROUTE_UNAVAILABLE = object()
+
+
+async def conversation_binding_route(request: web.Request, name: str):
+    """One agent's binding from telemetry API 36, without the live roster.
+
+    The dashboard gives the verdict of that agent's live-roster row (the same
+    binding functions) without capturing panes: about 1.3 s becomes tens of
+    ms. Returns the row, None when the dashboard says the agent is not in the
+    live roster, or _BINDING_ROUTE_UNAVAILABLE to use the roster instead.
+    """
+    url=DASHBOARD_URL+'/api/agents/'+urllib.parse.quote(name,safe='')+'/history-binding'
+    async with request.app[HTTP_SESSION_KEY].get(url) as response:
+        try:data=await response.json(content_type=None)
+        except ValueError:return _BINDING_ROUTE_UNAVAILABLE
+        status=response.status
+    if status==404 and isinstance(data,dict) and data.get('ok') is False and data.get('error')=='agent_unavailable':
+        return None
+    if (status!=200 or not isinstance(data,dict) or data.get('ok') is not True
+            or not isinstance(data.get('agent'),dict) or data['agent'].get('name')!=name):
+        return _BINDING_ROUTE_UNAVAILABLE
+    return data['agent']
+
+
+async def conversation_bound_row(request: web.Request, name: str, not_before: float | None = None) -> dict:
+    shared=request.app.get(CONVERSATION_DASHBOARD_KEY)
+    if shared is not None:
+        # Which source to ask first: an expired generation may decide that.
+        try:api=await conversation_api_version(request,hint=True)
+        except (ClientError,asyncio.TimeoutError,ValueError):api=None
+        if api is not None and api>=DASHBOARD_BINDING_ROUTE_API:
+            # A new request each time, so a recheck always starts after its read.
+            # Only an explicit agent_unavailable is authoritative; any other
+            # failure, including transport errors and timeouts, uses the roster.
+            try:found=await conversation_binding_route(request,name)
+            except (ClientError,asyncio.TimeoutError,ValueError):found=_BINDING_ROUTE_UNAVAILABLE
+            stats=conversation_stats(request.app)
+            if found is not _BINDING_ROUTE_UNAVAILABLE:
+                # The route itself exists only from API 36: its answer is the
+                # confirmation, whatever the cached generation says.
+                stats['binding_route']+=1
+                return bound_agent({'agents':[found] if found else []},name,
+                                   api_generation=DASHBOARD_BINDING_ROUTE_API)
+            stats['binding_route_fallback']+=1
+    cached=shared.get('version') if shared is not None else None
+    version=None
+    if shared is not None and not (cached and asyncio.get_running_loop().time()-cached[0] < DASHBOARD_VERSION_SECONDS):
+        # Ask in parallel with the roster rather than after it.
+        version=asyncio.ensure_future(conversation_api_version(request))
+    conversation_stats(request.app)['roster']+=1
+    try:
+        payload=await conversation_live_agents(request,not_before=not_before)
+    except BaseException:
+        if version is not None:
+            version.add_done_callback(lambda task: task.cancelled() or task.exception())
+        raise
+    rows=payload.get('agents',[]) if isinstance(payload,dict) else []
+    other=any(isinstance(row,dict) and row.get('name')==name
+              and row.get('program') not in {'codex','codex-cli'} for row in rows)
+    api=34
+    if other:
+        api=await (version if version is not None else conversation_api_version(request))
+    elif version is not None:
+        version.add_done_callback(lambda task: task.cancelled() or task.exception())
+    return bound_agent(payload,name,api_generation=api)
+
+
+def conversation_reply(name, body, *, slot=False, held=False):
+    """A History answer. `hold`: this server can hold a poll (a client may ask
+    for a slot at once after opening); `slot`: this request held a server
+    slot, so the client may ask again at once; `held`: it really waited."""
+    return web.json_response(dict(body, ok=True, agent=name, hold=True, **({'slot': True} if slot else {}),
+                                  **({'held': True} if held else {})),
+                             headers={"Cache-Control": "no-store"})
+
+
+async def conversation_legacy_read(request, name, query, limit, wait, polls, stats, bound_row):
+    """Legacy History read: hold an unchanged poll, read on a change.
+
+    A request that got a slot returns only when this session has new content,
+    when its wait ends, when its client goes away, or when REVALIDATE elapses
+    while it waits. A read that finds no new content for this session (the
+    same Hermes snapshot after another session wrote, or no event after the
+    cursor) refreshes the stored state and goes back to waiting.
+    """
+    loop=asyncio.get_running_loop()
+    cursor=query.get('after')
+    shared=request.app.get(CONVERSATION_DASHBOARD_KEY)
+    slot=held=False
+    # A slot is remembered by (reader, agent): the same reader's next held
+    # poll takes it over at once (the old one answers 204 and does not give
+    # the slot back), so re-asking right after a user operation never meets
+    # the cap before the old requests' disconnect is noticed. A reader id
+    # only names a slot to take over; content is always bound-checked.
+    reader=query.get('reader')
+    key=(reader,name) if reader else None
+    mine={'event':asyncio.Event(),'superseded':False,'evicted':False,'since':None}
+    if wait and cursor is not None and polls is not None and shared is not None:
+        holders=shared.setdefault('holders',{})
+        previous=holders.get(key) if key else None
+        if previous is not None:
+            previous['superseded']=True;previous['event'].set()
+            holders[key]=mine;slot=True;stats['held_taken_over']+=1
+        elif shared.get('held',0)<CONVERSATION_MAX_HELD:
+            shared['held']=shared.get('held',0)+1;slot=True
+            if key:holders[key]=mine
+        else:
+            # At the cap. A reader whose record has changed takes the slot of
+            # one that has waited quietly for CONVERSATION_QUIET_SECONDS: that
+            # one answers "unchanged" without a slot and polls every 4 s.
+            victim=None
+            if key and await asyncio.to_thread(conversation_record_moved,polls,name,cursor):
+                quiet=[(entry['since'],other) for other,entry in holders.items() if entry['since'] is not None
+                       and not entry['superseded'] and loop.time()-entry['since']>=CONVERSATION_QUIET_SECONDS]
+                victim=min(quiet,default=(None,None))[1]
+            if victim is not None:
+                given=holders.pop(victim);given['superseded']=given['evicted']=True;given['event'].set()
+                holders[key]=mine;slot=True;stats['held_given_up']+=1
+            else:stats['held_cap_reached']+=1
+    deadline=loop.time()+(wait if slot else 0)
+    try:
+        while True:
+            expired=False
+            if polls is not None and cursor is not None:
+                # An unchanged, recently verified record: no record read, no
+                # dashboard request, no events in the reply. The lstat hint
+                # only wakes the authoritative no-follow check.
+                quiet=await asyncio.to_thread(polls.unchanged,name,cursor)
+                hint=polls.quick(name,cursor) if quiet is not None and slot else None
+                if quiet is not None and slot:mine['since']=loop.time()
+                while quiet is not None and slot and loop.time()<deadline:
+                    try:await asyncio.wait_for(mine['event'].wait(),min(CONVERSATION_WAIT_STEP,max(0.0,deadline-loop.time())))
+                    except asyncio.TimeoutError:pass
+                    held=True
+                    if mine['evicted']:
+                        # A reader with new content took this slot. Check this
+                        # record once more: unchanged answers "unchanged" (poll
+                        # again at the plain interval); a change, or an expired
+                        # check, reads and answers with the content, no slot.
+                        quiet=await asyncio.to_thread(polls.unchanged,name,cursor)
+                        if quiet is not None:
+                            return conversation_reply(name,quiet,slot=False,held=True)
+                        slot=False;break
+                    if mine['superseded']:
+                        # The same reader asked again: its new request has this slot.
+                        return web.Response(status=204)
+                    if request.transport is None or request.transport.is_closing():
+                        # The client went away (abort, pane or tab closed).
+                        stats['held_client_gone']+=1
+                        return web.Response(status=204)
+                    if polls.entry(name,cursor) is None:
+                        # REVALIDATE elapsed while held: ask the dashboard.
+                        quiet=None;expired=True;break
+                    moved=polls.quick(name,cursor)
+                    if moved!=hint or loop.time()>=deadline:
+                        quiet=await asyncio.to_thread(polls.unchanged,name,cursor)
+                        hint=moved
+                mine['since']=None
+                if quiet is not None:
+                    stats['unchanged']+=1
+                    return conversation_reply(name,quiet,slot=slot,held=held)
+                if not expired and await conversation_same_session(name,cursor,polls,stats):
+                    if slot and loop.time()<deadline:continue  # only another session wrote
+                    stats['unchanged']+=1
+                    return conversation_reply(name,dict(polls.entry(name,cursor)['reply']),slot=slot,held=held)
+            body,empty=await conversation_full_read(request,name,query,cursor,limit,polls,stats,bound_row)
+            if (empty and slot and not expired and loop.time()<deadline
+                    and polls.entry(name,body['after'],fresh=True) is not None):
+                cursor=body['after']  # nothing new for this session: wait again
+                continue
+            return conversation_reply(name,body,slot=slot,held=held)
+    finally:
+        if slot and not mine['superseded']:
+            shared['held']-=1
+            if key and shared.get('holders',{}).get(key) is mine:del shared['holders'][key]
+
+
+def conversation_record_moved(polls, name, cursor):
+    """Has the file stored for this cursor changed? Only a reason to take a
+    quiet reader's slot; the content is read and checked as usual."""
+    entry=polls.entry(name,cursor,fresh=False) if isinstance(cursor,str) else None
+    if entry is None:
+        return False
+    try:
+        return bound_signature(entry['path'])!=entry['signature']
+    except (HistoryUnavailable, OSError):
+        return False
+
+
+async def conversation_same_session(name, cursor, polls, stats):
+    """Hermes: is this session unchanged although its shared state.db changed?
+
+    Opens the recorded DB only when the binding was confirmed within
+    REVALIDATE and the descriptor is the confirmed (dev, inode); reads one
+    aggregate row, publishes nothing. Any doubt answers False (a full read).
+    """
+    entry=polls.entry(name,cursor)
+    recent=polls.recent_row(name)
+    if entry is None or entry.get('fingerprint') is None or recent is None:
+        return False
+    def check():
+        signature=bound_signature(recent['row']['transcript_path'])
+        with open_reader(recent['row'],expect_inode=recent['inode']) as reader:
+            return polls.same_session(name,cursor,reader.session_fingerprint(),signature)
+    try:same=await asyncio.to_thread(check)
+    except (HistoryUnavailable,OSError,sqlite3.Error,ValueError):return False
+    if same:stats['other_session_only']+=1
+    return same
+
+
+async def conversation_full_read(request, name, query, cursor, limit, polls, stats, bound_row):
+    """One dashboard-checked read: (reply body, no new content for this session)."""
+    # A binding the dashboard confirmed after a read within REVALIDATE
+    # seconds stands in for the check before this read. The check after the
+    # read is never skipped, and nothing read is published before it passes;
+    # a file that is not the recorded (dev, inode) is not read before a check.
+    recent=polls.recent_row(name) if polls is not None else None
+    if recent is not None:
+        row=recent['row'];verified=recent['verified']
+    else:
+        row=await bound_row()
+        verified=polls.clock() if polls is not None else 0.0
+    signature=None
+    if polls is not None:
+        try:signature=await asyncio.to_thread(bound_signature,row['transcript_path'])
+        except (HistoryUnavailable,OSError):signature=None
+    # Keep the no-follow descriptor pinned across the authoritative recheck.
+    # With a confirmed binding, the bare descriptor's (dev, inode) is compared
+    # before the Reader reads any byte (its header check).
+    manager=open_reader(row,**({'expect_inode':recent['inode']} if recent is not None else {}))
+    try:
+        reader=await asyncio.to_thread(manager.__enter__)
+    except (HistoryUnavailable,OSError,sqlite3.Error):
+        if recent is None:raise
+        # Not the confirmed file (nothing was read) or unreadable: ask the
+        # dashboard first, then open what it binds.
+        polls.forget_row(name);stats['recent_mismatch']+=1
+        row=await bound_row();verified=polls.clock();recent=None
+        try:signature=await asyncio.to_thread(bound_signature,row['transcript_path'])
+        except (HistoryUnavailable,OSError):signature=None
+        manager=open_reader(row)
+        reader=await asyncio.to_thread(manager.__enter__)
+    if recent is not None:stats['pre_check_skipped']+=1
+    digest=None
+    try:
+        provider=reader.provider
+        stats['full_reads']+=1  # every read_page call, including one that fails
+        result=await asyncio.to_thread(reader.read_page,before=query.get('before'),after=cursor,limit=limit)
+        # Hermes: the digest of the very rows this page shows, from the same
+        # scan (no second query; within the reader's SQLite time budget).
+        fingerprint=reader.last_fingerprint if polls is not None else None
+        if polls is not None and result.get('mode')=='snapshot':
+            digest=hashlib.sha256(json.dumps(result['events'],sort_keys=True).encode()).hexdigest()
+            previous=polls.entry(name,cursor,fresh=False)
+            if previous is not None and previous['digest']==digest:
+                # Same visible snapshot (another session wrote to the shared
+                # DB): keep the client's rows, send no content.
+                if recent is None:
+                    # The dashboard confirmed this binding just before this
+                    # read of the pinned file: later reads may skip that
+                    # check (never the one after a read that publishes).
+                    pinned=await asyncio.to_thread(os.fstat,reader.fileno())
+                    polls.remember_row(name,row,(pinned.st_dev,pinned.st_ino),verified)
+                return polls.remember(name,row,result,signature,verified,digest,provider=provider,fingerprint=fingerprint),True
+        store=request.app.get(CONVERSATION_REFERENCES_KEY)
+        if store is not None:
+            tools=[event for event in result['events'] if event['kind'] in {'tool','tool_result'}]
+            if tools:
+                await asyncio.to_thread(store.decorate_all,row,reader,tools)
+        checked=polls.clock() if polls is not None else 0.0
+        try:
+            current=await bound_row(asyncio.get_running_loop().time())
+            if conversation_binding(current)!=conversation_binding(row):raise HistoryUnavailable('history_changed')
+            await asyncio.to_thread(reader.assert_identity)
+        except BaseException:
+            # The read is discarded with the error; the next read checks the
+            # dashboard before it reads.
+            if polls is not None:polls.forget_row(name)
+            raise
+        inode=await asyncio.to_thread(lambda:(lambda st:(st.st_dev,st.st_ino))(os.fstat(reader.fileno())))
+    finally:
+        await asyncio.to_thread(manager.__exit__,None,None,None)
+    result.setdefault('mode','cursor')
+    if polls is not None:
+        polls.remember_row(name,row,inode,checked)
+        polls.remember(name,row,result,signature,checked,digest,provider=provider,fingerprint=fingerprint)
+    for index,event in enumerate(result['events']):
+        event=recorded_mail(event);result['events'][index]=event
+    empty=(cursor is not None and query.get('before') is None and not result['events']
+           and not result.get('has_newer'))
+    return dict(result,provider=provider),empty
+
+
+async def serve_conversation(request: web.Request) -> web.Response:
+    """A read-only provider view. Browser input can select an agent, never a path.
+
+    Legacy resolves a bound dashboard row on each read and rechecks it before
+    publishing. Fresh keeps its existing protected history route and its public
+    text projection; it deliberately cannot expose raw paths or byte cursors.
+    """
+    query = request.query
+    if (set(query) - {"agent", "before", "after", "limit", "wait", "reader"}
+            or any(len(query.getall(key)) != 1 for key in query)
+            or "before" in query and "after" in query):
+        return web.json_response({"ok": False, "error": "invalid_query"}, status=400)
+    name = query.get("agent", "")
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_-]{0,95}", name):
+        return web.json_response({"ok": False, "error": "invalid_agent"}, status=400)
+    try:
+        limit = int(query.get("limit", "80"))
+        if not 1 <= limit <= 200:
+            raise ValueError
+    except ValueError:
+        return web.json_response({"ok": False, "error": "invalid_limit"}, status=400)
+    try:
+        wait = int(query.get("wait", "0"))
+        if not 0 <= wait <= CONVERSATION_WAIT_SECONDS or wait and "after" not in query:
+            raise ValueError
+        if "reader" in query and (not wait or not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", query["reader"])):
+            raise ValueError
+    except ValueError:
+        return web.json_response({"ok": False, "error": "invalid_query"}, status=400)
+    session = request.app[HTTP_SESSION_KEY]
+    boundary = request.app[TMUX_BIN_KEY]
+
+    async def bound_row(not_before=None):
+        return await conversation_bound_row(request, name, not_before)
+
+    stats=conversation_stats(request.app)
+    provider="codex"
+    try:
+        if isinstance(boundary, FreshTargetBoundary):
+            target = await asyncio.to_thread(boundary.resolve, name)
+            marker = "window:" + target.revision
+            if "before" in query or query.get("after", marker) != marker:
+                raise HistoryUnavailable("history_changed")
+            selectors = dict(target.ref, session=name, limit="200")
+            async with session.get(DASHBOARD_URL + "/api/history", params=selectors) as response:
+                if response.status != 200:
+                    raise HistoryUnavailable("history_unavailable")
+                payload = await response.json()
+            # The same bound host must still select the same I/A/current/route.
+            current = await asyncio.to_thread(boundary.resolve, name, target.ref)
+            if current.revision != target.revision or current.ref != target.ref:
+                raise HistoryUnavailable("history_changed")
+            if not isinstance(payload, dict) or payload.get("ok") is not True:
+                raise HistoryUnavailable("history_unavailable")
+            if payload.get("source") == "claude":
+                raise HistoryUnavailable("claude_next_phase")
+            if (payload.get("source") != "codex" or payload.get("history_binding") != "bound"
+                    or any(payload.get(key) != value for key, value in target.ref.items())):
+                raise HistoryUnavailable("history_unconfirmed")
+            events = []
+            occurrences: dict[str, int] = {}
+            for event in payload.get("events", []):
+                if (not isinstance(event, dict) or event.get("kind") != "text"
+                        or event.get("role") not in {"user", "assistant"}
+                        or not isinstance(event.get("text"), str)):
+                    continue
+                key = json.dumps([event.get("ts"), event["role"], event["text"]], ensure_ascii=False)
+                digest = hashlib.sha256(key.encode()).hexdigest()
+                occurrence = occurrences.get(digest, 0)
+                occurrences[digest] = occurrence + 1
+                event_id = f"window:{digest}:{occurrence}"
+                events.append(dict(id=event_id, role=event["role"], kind="text",
+                                   text=event["text"][:65536], ts=str(event.get("ts") or "")[:128]))
+            result = dict(events=events, before=None, after=marker, has_older=False,
+                          has_newer=False, limited=bool(payload.get("has_more") or payload.get("truncated")),
+                          mode="fresh_tail")
+        else:
+            polls=request.app.get(CONVERSATION_UNCHANGED_KEY)
+            return await conversation_legacy_read(request, name, query, limit, wait, polls, stats, bound_row)
+        for index,event in enumerate(result['events']):
+            event=recorded_mail(event);result['events'][index]=event
+        return web.json_response(dict(result, ok=True, agent=name, provider=provider),
+                                 headers={"Cache-Control": "no-store"})
+    except HistoryUnavailable as exc:
+        return web.json_response(dict(ok=False,error=str(exc),**({"reason":exc.reason} if getattr(exc,"reason","") else {}),**({"reason_code":exc.reason_code} if getattr(exc,"reason_code","") else {})), status=409 if str(exc) == "history_changed" else 400,
+                                 headers={"Cache-Control": "no-store"})
+    except sqlite3.Error:
+        return web.json_response({"ok":False,"error":"history_unreadable"},status=400,headers={"Cache-Control":"no-store"})
+    except TargetRefused:
+        return web.json_response({"ok": False, "error": "history_unconfirmed"}, status=409,
+                                 headers={"Cache-Control": "no-store"})
+    except (ClientError, asyncio.TimeoutError, ValueError, TypeError):
+        return web.json_response({"ok": False, "error": "dashboard_unavailable"}, status=502,
+                                 headers={"Cache-Control": "no-store"})
+
+
+async def conversation_reference(request: web.Request, *, reveal: bool = False) -> web.Response:
+    headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',
+             'Content-Security-Policy':"default-src 'none'; frame-ancestors 'none'"}
+    try:
+        if reveal:
+            if request.query:raise PreviewUnavailable('invalid_query')
+            payload=await request.json()
+            if not isinstance(payload,dict) or set(payload)!={'ref'}:raise PreviewUnavailable('invalid_query')
+            ref=payload['ref']
+        else:
+            if set(request.query)!={'ref'} or len(request.query.getall('ref'))!=1:raise PreviewUnavailable('invalid_query')
+            ref=request.query['ref']
+        if not isinstance(ref,str) or not re.fullmatch(r'[A-Za-z0-9_-]{32}',ref):raise PreviewUnavailable('invalid_reference')
+        # Fresh has only a public text projection. Never bypass it by discovering
+        # provider paths through another runtime route.
+        if isinstance(request.app[TMUX_BIN_KEY],FreshTargetBoundary):raise PreviewUnavailable('preview_unavailable')
+        store=request.app[CONVERSATION_REFERENCES_KEY]
+        name=store.owner(ref)
+        row=await conversation_bound_row(request,name)
+        result=await asyncio.to_thread(store.read,ref,row,reveal=reveal)
+        current=await conversation_bound_row(request,name)
+        if conversation_binding(row)!=conversation_binding(current):raise PreviewUnavailable('reference_expired')
+        if reveal:
+            # Same file-manager adapter as existing reveal-path, never serves
+            # bytes and never accepts a browser path. Explicit click only.
+            await asyncio.to_thread(reveal_in_finder,result)
+            return web.json_response({'ok':True},headers=headers)
+        return web.json_response(dict(result,ok=True),headers=headers)
+    except (PreviewUnavailable,HistoryUnavailable) as exc:
+        return web.json_response({'ok':False,'error':str(exc)},status=400,headers=headers)
+    except (ClientError,asyncio.TimeoutError):
+        return web.json_response({'ok':False,'error':'dashboard_unavailable'},status=502,headers=headers)
+    except (ValueError,TypeError,OSError,sqlite3.Error,RevealUnavailable):
+        return web.json_response({'ok':False,'error':'preview_unavailable'},status=400,headers=headers)
+
+
+async def serve_conversation_preview(request: web.Request) -> web.Response:
+    return await conversation_reference(request)
+
+
+async def reveal_conversation_reference(request: web.Request) -> web.Response:
+    return await conversation_reference(request,reveal=True)
 
 
 async def proxy_spawn(request: web.Request) -> web.Response:
@@ -3848,10 +4404,12 @@ PUBLIC_FILES = {"/" + name: name for name in (
     "cockpit.html", "tour.html", "orbit.svg", "orbit-light.svg",
     "orrery_view.css", "mail_view.css", "spawn_picker.css", "theme_light.css",
     "cockpit_tour.css", "telemetry_light.css",
-    "spawn_picker.js", "effort_slider.js", "spawn_catalog_loader.js", "prefs_sync.js",
+    "spawn_picker.js", "effort_slider.js", "spawn_catalog_loader.js", "prefs_sync.js", "phone_settings.js",
     "theme_core.js", "theme_controller.js", "roster_descriptor.js", "demo_mask.js",
     "demo_mode.js", "orrery_view.js", "mail_view.js", "cockpit_tour.js",
     "cockpit_full_tour.js", "telemetry_light.js",
+    "conversation_source.js", "conversation_view.js", "conversation_view.css", "conversation_preview.js",
+    "conversation_mail.js", "conversation_terminal.js", "conversation_markdown.js",
     "vendor/xterm-5.5.0/xterm.js", "vendor/xterm-5.5.0/xterm.css",
     "vendor/addon-fit-0.10.0/addon-fit.js",
     "vendor/addon-web-links-0.11.0/addon-web-links.js",
@@ -3865,7 +4423,8 @@ async def serve_public_file(request: web.Request) -> web.FileResponse:
     return web.FileResponse(HERE / PUBLIC_FILES[request.path])
 
 
-def create_app(tmux_bin: str = "tmux", *, mobile_input_enabled: bool = False) -> web.Application:
+def create_app(tmux_bin: str = "tmux", *, mobile_input_enabled: bool = False,
+               conversation_image_roots=(), conversation_workspace_roots=()) -> web.Application:
     app = web.Application(middlewares=[own_page_only, json_writes_only, revalidate_static])
     app[TMUX_BIN_KEY] = (tmux_bin if isinstance(tmux_bin,(LegacyTargetBoundary,FreshTargetBoundary)) else
         FreshTargetBoundary(tmux_bin) if os.environ.get('AGENTSTACK_RUNTIME_MODE')=='fresh' else LegacyTargetBoundary(tmux_bin))
@@ -3873,6 +4432,11 @@ def create_app(tmux_bin: str = "tmux", *, mobile_input_enabled: bool = False) ->
     app[USAGE_LOCKS_KEY] = {}
     app[PREFS_LOCK_KEY] = asyncio.Lock()
     app[PROXY_INFLIGHT_KEY] = {}
+    app[CONVERSATION_DASHBOARD_KEY] = {}
+    app[CONVERSATION_STATS_KEY] = collections.Counter()
+    app[CONVERSATION_UNCHANGED_KEY] = UnchangedPolls()
+    app[CONVERSATION_REFERENCES_KEY] = ReferenceStore(image_roots=conversation_image_roots,
+                                                    workspace_roots=conversation_workspace_roots)
     app.cleanup_ctx.append(app_resources)
     from mobile_input import InputCoordinator, PaneResolver, install_routes
     async def mobile_bridge(name,ref=None):
@@ -3885,9 +4449,15 @@ def create_app(tmux_bin: str = "tmux", *, mobile_input_enabled: bool = False) ->
             state=manager.states.get(target.key)
         else:state = manager.states.get(name) if manager is not None else None
         return state.bridge if state is not None and not state.bridge._closed else None
-    install_routes(app, InputCoordinator(PaneResolver(app[TMUX_BIN_KEY]), mobile_bridge,
-                                        enabled=mobile_input_enabled))
+    coordinator = install_routes(app, InputCoordinator(PaneResolver(app[TMUX_BIN_KEY]), mobile_bridge,
+                                                       enabled=mobile_input_enabled))
+    import mobile_access
+    mobile_access.install(app, coordinator, config_path=CONFIG_PATH)
     app.router.add_get("/telemetry/agents", proxy_dashboard)
+    app.router.add_get("/telemetry/conversation", serve_conversation)
+    app.router.add_get("/telemetry/conversation/stats", serve_conversation_stats)
+    app.router.add_get('/telemetry/conversation/preview', serve_conversation_preview)
+    app.router.add_post('/telemetry/conversation/reveal', reveal_conversation_reference)
     app.router.add_get("/telemetry/messages", proxy_dashboard)
     app.router.add_get("/telemetry/graph", proxy_dashboard)
     app.router.add_post("/telemetry/spawn", proxy_spawn)
@@ -3931,6 +4501,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default=int(os.environ.get("PORT", DEFAULT_PORT)),
     )
     parser.add_argument("--tmux-bin", default=os.environ.get("TMUX_BIN", "tmux"))
+    parser.add_argument('--conversation-image-root',action='append',default=[],metavar='DIRECTORY',
+                        help='explicit additional raster-image root for recorded references only')
+    parser.add_argument('--conversation-workspace-root',action='append',default=[],metavar='DIRECTORY',
+                        help='explicit additional workspace root (e.g. a session moved to a new worktree)')
     mobile_terminal = USER_CONFIG.get('enable_mobile_terminal', False)
     if type(mobile_terminal) is not bool:
         parser.error('config enable_mobile_terminal must be JSON true or false')
@@ -3947,7 +4521,9 @@ def main(argv: list[str]) -> int:
     tmux_bin = resolve_tmux_bin(args.tmux_bin)
     print(f"ORRERY: tmux resolved to {tmux_bin}", flush=True)
 
-    app = create_app(tmux_bin, mobile_input_enabled=args.enable_mobile_terminal)
+    app = create_app(tmux_bin, mobile_input_enabled=args.enable_mobile_terminal,
+                     conversation_image_roots=args.conversation_image_root,
+                     conversation_workspace_roots=args.conversation_workspace_root)
     with contextlib.suppress(KeyboardInterrupt):
         web.run_app(
             app,
