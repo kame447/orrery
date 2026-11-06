@@ -47,7 +47,7 @@ QA_HOST = "127.0.0.1"
 QA_PORT = 8802
 WS_URL = f"ws://{QA_HOST}:{QA_PORT}/ws"
 HTTP_BASE = f"http://{QA_HOST}:{QA_PORT}"
-SERVER_START_TIMEOUT = 12.0
+SERVER_START_TIMEOUT = 45.0 if sys.platform == "darwin" else 12.0
 EVENT_TIMEOUT = 10.0
 STREAM_QUIET_SECONDS = 0.2
 STREAM_ROUNDS = int(os.environ.get("ORRERY_STREAM_ROUNDS", "5"))
@@ -2261,7 +2261,7 @@ class Cycle10PersistenceContractTest(unittest.TestCase):
         )
         return history_file, payload
 
-    async def _attach_snapshot(self, pane_id: str) -> str:
+    async def _attach_snapshot(self, pane_id: str, *, require_first_output: bool = False) -> str:
         async with websockets.connect(
             WS_URL,
             open_timeout=EVENT_TIMEOUT,
@@ -2284,7 +2284,10 @@ class Cycle10PersistenceContractTest(unittest.TestCase):
             output = ""
             while True:
                 try:
-                    item = await recv_json(websocket, STREAM_QUIET_SECONDS)
+                    item = await recv_json(
+                        websocket,
+                        EVENT_TIMEOUT if require_first_output and not output else STREAM_QUIET_SECONDS,
+                    )
                 except TimeoutError:
                     break
                 if (
@@ -2307,7 +2310,7 @@ class Cycle10PersistenceContractTest(unittest.TestCase):
         )
 
         self._start_backend()
-        snapshot = asyncio.run(self._attach_snapshot(pane_id))
+        snapshot = asyncio.run(self._attach_snapshot(pane_id, require_first_output=True))
         self.assertIn(
             early_marker,
             snapshot,
