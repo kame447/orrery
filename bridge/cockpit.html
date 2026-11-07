@@ -10410,7 +10410,7 @@ OrreryDemo.rowGroup=function(rowEl){
   return {rows:group,pads,before,after:after.replace(/\s+$/,'')};
 };
 function openNetwork({focus=activeSession()}={}){
-  const query=new URLSearchParams({embed:'1'});
+  const query=new URLSearchParams({embed:'1',view:'net'});
   if(focus)query.set('focus',focus);
   const src='/network/?'+query.toString();
   const loaded=networkFrame.getAttribute('src')===src;

@@ -204,6 +204,19 @@ def test_dom_full_tour_is_separate_and_restart_preserves_first_flight(tour_brows
                       'empty': True, 'firstClosed': True, 'fullOpen': True}
 
 
+def test_network_button_starts_in_graph_view_and_preserves_focus(tour_browser):
+    _, evaluate = tour_browser
+    result = evaluate("""(()=>{
+      openNetwork({focus:'Pilot'});
+      const src=new URL(networkFrame.getAttribute('src'),location.origin);
+      return {path:src.pathname,embed:src.searchParams.get('embed'),
+        view:src.searchParams.get('view'),focus:src.searchParams.get('focus'),
+        visible:networkOverlay.classList.contains('on')};
+    })()""")
+    assert result == {'path': '/network/', 'embed': '1', 'view': 'net',
+                      'focus': 'Pilot', 'visible': True}
+
+
 def test_dom_telemetry_notifications_require_owned_frame_and_current_step(tour_browser):
     _, evaluate = tour_browser
     result = evaluate("""(()=>{
