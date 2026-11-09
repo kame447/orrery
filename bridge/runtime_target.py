@@ -448,6 +448,70 @@ class LegacyTargetBoundary:
         else:
             self.prefix = self._legacy_bootstrap()
 
+    def socket_replaced(self):
+        """Signal a default legacy socket rollover without adopting a new server.
+
+        The normal admission path must still refuse an unexpected server.
+        Only the recorder manager may explicitly retire old bridges and then
+        call rebind_server() to establish a new consumer generation.
+        """
+        if self.shared is None or self.transport is None or self.environment.get('TMUX'):
+            return False
+        try:
+            try:
+                self.transport.path.lstat()
+            except FileNotFoundError:
+                # An idle machine legitimately has no tmux server. The roster
+                # can clear stale states; a later socket can be revalidated.
+                return False
+            identity = self.shared['validate_socket'](self.transport.path)
+            if identity != self.transport.identity:
+                return True
+            # Some filesystems can reuse a socket inode after a rapid server
+            # restart. The server PID is also part of the frozen endpoint.
+            current = self.shared['legacy_transport'](binary=self.binary, environ=self.environment)
+            return current.public()['server_pid'] != self.pin['server_pid']
+        except (Exception, SystemExit) as exc:
+            self._helper_failure(exc)
+            return False
+
+    def rebind_server(self):
+        """Adopt a verified successor only after old recorder bridges are closed.
+
+        Keep the exact default endpoint and installed helper. No inherited
+        server pin, alternate path, global-mode fallback, or cached pane proof
+        may cross the rollover.
+        """
+        if self.shared is None or self.transport is None or self.environment.get('TMUX'):
+            raise TargetRefused('TMUX_SOCKET_CHANGED')
+        try:
+            with self._pin_lock:
+                refreshed = self.shared['legacy_transport'](binary=self.binary, environ=self.environment)
+                public = refreshed.public()
+                self.validate({'contract':self.shared['CONTRACT'],'ok':True,**public},
+                              self.shared['result_schema']('legacy-transport'))
+                if any(public[key] != self.pin[key] for key in
+                       ('transport','socket_path','argv','environment_unset')):
+                    raise TargetRefused('TMUX_SOCKET_CHANGED')
+                if (refreshed.identity == self.transport.identity
+                        and public['server_pid'] == self.pin['server_pid']):
+                    return False
+                if refreshed.identity is None or public['server_pid'] is None:
+                    raise TargetRefused('TMUX_TARGET_UNAVAILABLE')
+                # Global ownership must still be provable; no fallback to a
+                # guessed legacy target when the shared inventory is uncertain.
+                self.shared['global_proofs'](self.home)
+                self.transport = refreshed
+                self.pin = public
+                self.prefix = refreshed.argv
+                self._pane_proofs.clear()
+                return True
+        except TargetRefused:
+            raise
+        except (Exception, SystemExit) as exc:
+            self._helper_failure(exc)
+            raise TargetRefused('TMUX_TARGET_UNAVAILABLE') from exc
+
     def __str__(self):
         return str(self.binary)
 

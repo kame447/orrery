@@ -1088,6 +1088,76 @@ class SessionBridgeManager:
         self._lock = asyncio.Lock()
         self._closed = False
         self._roster_task: asyncio.Task[None] | None = None
+        self._attach_error_times: dict[tuple[str, str], float] = {}
+        self._rebind_error: tuple[str, float] | None = None
+        self._legacy_epoch = 0
+        self._legacy_peer_epoch: dict[Any, int] = {}
+
+    def _log_attach_error(self, session: str, exc: Exception) -> None:
+        reason = str(exc) if isinstance(exc, TargetRefused) else type(exc).__name__
+        key = (session, reason)
+        now = time.monotonic()
+        if now - self._attach_error_times.get(key, -float('inf')) >= 60:
+            print(f"ORRERY recorder failed to attach {session!r}: {reason}",
+                  file=sys.stderr, flush=True)
+            self._attach_error_times[key] = now
+        if len(self._attach_error_times) > 1024:
+            self._attach_error_times = {k: t for k, t in self._attach_error_times.items()
+                                        if now - t < 120}
+
+    async def _recover_legacy_socket(self) -> bool:
+        """Re-pin a verified successor only after all old bridges are retired.
+
+        Never retry the refused operation against the new server in the same
+        input/capture admission. Session names and pane IDs are not identity.
+        """
+        boundary = self.tmux_bin
+        if not isinstance(boundary, LegacyTargetBoundary):
+            return True
+        try:
+            if not await asyncio.to_thread(boundary.socket_replaced):
+                return True
+            async with self._lock:
+                if self._closed:
+                    return False
+                if not await asyncio.to_thread(boundary.socket_replaced):
+                    return True
+                obsolete = list(self.states.values())
+                self.states.clear()
+                # A pane ID or session name may be reused on the new server;
+                # invalidate every earlier WebSocket attachment generation.
+                self._legacy_epoch += 1
+                # Old pane IDs can recur on the next server. Force each
+                # attached browser peer to reconnect and request a new proof.
+                # Close only the cockpit websockets, never the agent sessions.
+                peers = {peer for state in obsolete for peer in state.bridge.clients}
+                async def close_peer(peer):
+                    response = getattr(peer, "response", None)
+                    if response is not None:
+                        await asyncio.wait_for(response.close(
+                            code=1012, message=b"tmux server restarted"), timeout=2)
+                await asyncio.gather(*(close_peer(peer) for peer in peers),
+                                     return_exceptions=True)
+                await asyncio.gather(
+                    *(self._stop_bridge(state) for state in obsolete),
+                    return_exceptions=True,
+                )
+                rebound = await asyncio.to_thread(boundary.rebind_server)
+            if rebound:
+                print("ORRERY recorder revalidated a restarted tmux server",
+                      file=sys.stderr, flush=True)
+            self._attach_error_times.clear()
+            self._rebind_error = None
+            return True
+        except (TargetRefused, OSError, RuntimeError) as exc:
+            reason = str(exc) if isinstance(exc, TargetRefused) else type(exc).__name__
+            now = time.monotonic()
+            old = self._rebind_error
+            if old is None or old[0] != reason or now - old[1] >= 60:
+                print(f"ORRERY recorder cannot rebind tmux: {reason}",
+                      file=sys.stderr, flush=True)
+                self._rebind_error = (reason, now)
+            return False
 
     async def start(self) -> None:
         await self._prune_history()
@@ -1132,6 +1202,8 @@ class SessionBridgeManager:
     async def _reconcile_sessions(self) -> None:
         if isinstance(self.tmux_bin,FreshTargetBoundary):
             await self._reconcile_fresh();return
+        if not await self._recover_legacy_socket():
+            return
         try:
             sessions = await asyncio.to_thread(list_tmux_sessions, self.tmux_bin)
         except (OSError, RuntimeError):
@@ -1148,6 +1220,8 @@ class SessionBridgeManager:
                 self.states.pop(session)
                 for session, state in list(self.states.items())
                 if session not in live_sessions
+                or (state.bridge.config.session_created is not None
+                    and state.bridge.config.session_created != live_sessions.get(session))
                 or state.bridge.process is None
                 or state.bridge.process.poll() is not None
             ]
@@ -1161,13 +1235,11 @@ class SessionBridgeManager:
         for session, session_created in sorted(live_sessions.items()):
             try:
                 await self._ensure_bridge(session, session_created)
+                for key in list(self._attach_error_times):
+                    if key[0] == session:
+                        self._attach_error_times.pop(key, None)
             except Exception as exc:
-                print(
-                    f"ORRERY recorder failed to attach {session!r}: "
-                    f"{str(exc) if isinstance(exc, TargetRefused) else type(exc).__name__}",
-                    file=sys.stderr,
-                    flush=True,
-                )
+                self._log_attach_error(session, exc)
 
     async def _ensure_bridge(
         self,
@@ -1294,6 +1366,9 @@ class SessionBridgeManager:
     ) -> None:
         if isinstance(self.tmux_bin,FreshTargetBoundary):
             await self._attach_fresh(peer,attached,session);return
+        if (self._legacy_peer_epoch.get(peer, self._legacy_epoch)
+                != self._legacy_epoch):
+            attached.clear()
         try:
             await asyncio.to_thread(require_target, self.tmux_bin, "attach", session=session)
         except TargetRefused as exc:
@@ -1344,6 +1419,7 @@ class SessionBridgeManager:
             state.bridge.clients.add(peer)
             state.bridge.client_locks.setdefault(peer, asyncio.Lock())
             attached.add(session)
+            self._legacy_peer_epoch[peer] = self._legacy_epoch
 
         try:
             await state.bridge.send_snapshot(peer)
@@ -1403,6 +1479,7 @@ class SessionBridgeManager:
     ) -> None:
         for session in list(attached):
             await self.detach(peer, attached, session)
+        self._legacy_peer_epoch.pop(peer, None)
 
     async def handle_message(
         self,
@@ -1411,6 +1488,12 @@ class SessionBridgeManager:
         payload: dict[str, Any],
     ) -> None:
         message_type = payload.get("type")
+        if (isinstance(self.tmux_bin, LegacyTargetBoundary)
+                and message_type not in {"attach", "detach"}
+                and self._legacy_peer_epoch.get(peer, self._legacy_epoch) != self._legacy_epoch):
+            await send_error(peer, payload.get("session") if isinstance(
+                payload.get("session"), str) else None, "tmux server restarted; reattach")
+            return
 
         if isinstance(self.tmux_bin,FreshTargetBoundary) and message_type in {'attach','detach','refresh'}:
             if set(payload)-{'type','session','mail_instance_id','mail_agent_id'}:raise TargetRefused('FRESH_TARGET_QUERY_INVALID')
@@ -1625,6 +1708,7 @@ class SessionBridgeManager:
             self._roster_task = None
             states = list(self.states.values())
             self.states.clear()
+            self._legacy_peer_epoch.clear()
         if roster_task is not None:
             roster_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
