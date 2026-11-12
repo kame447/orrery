@@ -47,7 +47,7 @@
     if(plain)blocks.push({kind:'text',text:plain});return blocks;
   }
   // `fill(cell,value)` writes one cell; the conversation keeps cells as text.
-  function tableNode(block,fill=(cell,value)=>{cell.textContent=value;}){
+  function tableNode(block,fill=(cell,value)=>renderText(value,cell)){
     const container=document.createElement('div');container.className='conversation-table';
     const copy=document.createElement('button');copy.type='button';copy.className='cockpit-control conversation-table-copy';copy.textContent='Copy Markdown';
     copy.addEventListener('click',async event=>{event.stopPropagation();try{await navigator.clipboard.writeText(block.raw);copy.textContent='Copied';}catch(_){copy.textContent='Copy unavailable';}});
@@ -60,9 +60,9 @@
   }
   function render(text,host){
     const blocks=parse(text);
-    if(!blocks.some(block=>block.kind==='table')){host.textContent=text;return host;}
+    if(!blocks.some(block=>block.kind==='table')){host.textContent='';return renderText(text,host);}
     for(const block of blocks){
-      if(block.kind==='text'){const prose=document.createElement('span');prose.textContent=block.text;host.appendChild(prose);continue;}
+      if(block.kind==='text'){const prose=document.createElement('span');renderText(block.text,prose);host.appendChild(prose);continue;}
       host.appendChild(tableNode(block));
     }
     return host;
@@ -70,8 +70,9 @@
 
   /* A document view for a file preview: headings, paragraphs, lists, tables,
      code, quotes, rules and inline marks. Raw HTML stays visible text. An
-     image is a text label and is never fetched. Only http(s) and mailto links
-     are links (a new tab, no referrer); any other target is plain text.
+     image is a text label and is never fetched. HTTP(S) and mailto targets
+     are links (a new tab, no referrer); local paths wait for an existence
+     probe and explicit activation. All other targets remain plain text.
      Every pattern runs in time linear in its line: a file of 128 KiB in one
      line must not hold the page (review r1 measured 35 s for a backtracking
      heading pattern). Lines longer than LONG_LINE are paragraphs. */
@@ -79,6 +80,120 @@
   const el=(tag,cls)=>{const node=document.createElement(tag);if(cls)node.className=cls;return node;};
   function safeUrl(value){
     try{const url=new URL(value);return ['http:','https:','mailto:'].includes(url.protocol)?url.href:null;}catch(_){return null;}
+  }
+  function anchor(href){
+    const node=el('a');node.href=href;node.target='_blank';node.rel='noopener noreferrer';node.referrerPolicy='no-referrer';node.title=href;return node;
+  }
+  // Match the terminal addon's boundaries, allowing balanced () and [] in
+  // paths. Japanese punctuation also ends a URL. Scan each candidate once;
+  // overlong candidates stay text rather than becoming truncated links.
+  const URL_END=/[\s"'!*{}|\\^<>`\u3001\u3002\uff0c\uff0e\uff01\uff1f\u300c-\u300f\uff08\uff09\u3010\u3011\u3008-\u300b]/;
+  const URL_START=/https?:\/\//iy;
+  function bareUrl(text,begin){
+    if(/[a-z0-9]/i.test(text[begin-1]||'')||!at(URL_START,text,begin))return null;
+    let end=URL_START.lastIndex,round=0,square=0;
+    while(end<text.length&&!URL_END.test(text[end])){
+      const ch=text[end];
+      if(ch===')'&&!round||ch===']'&&!square)break;
+      if(ch==='(')round++;else if(ch===')')round--;
+      else if(ch==='[')square++;else if(ch===']')square--;
+      end++;
+    }
+    let last=end;
+    while(last>begin&&/[.,;:!?]/.test(text[last-1]))last--;
+    return {end,last,href:last-begin<=SPAN?safeUrl(text.slice(begin,last)):null};
+  }
+  // Spaces can belong to filenames. Keep the bounded candidate as inert text
+  // until the server finds its longest existing prefix. Never probe URL parts.
+  function barePath(text,begin){
+    if(/[a-z0-9/:~<]/i.test(text[begin-1]||'')||text.slice(begin,begin+2)==='//'||!(text[begin]==='/'||text.slice(begin,begin+2)==='~/'))return null;
+    let end=begin,closedSquare=null;const round=[],square=[];
+    while(end<text.length){
+      const ch=text[end];
+      // A following URL belongs to its own token, including a parenthesized
+      // URL or a Markdown label/target. Retain balanced brackets in filenames.
+      if((ch==='h'||ch==='H')&&at(URL_START,text,end)){
+        let boundary=end;
+        for(const start of round)if(text[start-1]===' ')boundary=Math.min(boundary,start-1);
+        for(const start of square)if(text[start-1]===' ')boundary=Math.min(boundary,start-1);
+        end=boundary;break;
+      }
+      if(ch!==' '&&URL_END.test(ch)||ch===')'&&!round.length||ch===']'&&!square.length)break;
+      if(ch===' '&&/^(?:https?:\/\/|~\/|\/)/i.test(text.slice(end+1,end+10)))break;
+      if(ch==='(')round.push(closedSquare?.end===end-1?closedSquare.start:end);
+      else if(ch===')')round.pop();
+      else if(ch==='[')square.push(end);
+      else if(ch===']')closedSquare={start:square.pop(),end};
+      end++;
+    }
+    let last=end;while(last>begin&&/[ .,;:!?]/.test(text[last-1]))last--;
+    const value=text.slice(begin,last);
+    return {end,last,path:value.length>1&&value.length<=SPAN&&!/[\x00-\x1f\x7f]/.test(value)?value:null};
+  }
+  function pathNode(path,label){
+    const node=el('span');node.dataset.pathCandidate=path;node.textContent=label??path;
+    if(label!==undefined)node.dataset.pathLabel='true';return node;
+  }
+  function renderText(text,host){
+    const start=/https?:\/\/|~\/|\//gi;let match,from=0;
+    while((match=start.exec(text))){
+      const begin=match.index,url=bareUrl(text,begin)||barePath(text,begin);if(!url)continue;
+      const {end,last,href,path}=url;start.lastIndex=end;
+      if(!href&&!path)continue;
+      if(begin>from)host.appendChild(document.createTextNode(text.slice(from,begin)));
+      const node=path?pathNode(path):anchor(href);node.textContent=text.slice(begin,last);host.appendChild(node);from=last;
+    }
+    if(from<text.length)host.appendChild(document.createTextNode(text.slice(from)));
+    return host;
+  }
+  function observePaths(host,source){
+    if(!root.MutationObserver||!source.probePaths)return ()=>{};
+    const pending=new Set(),cache=new Map();let running=false,closed=false;
+    function apply(node,result){
+      if(!host.contains(node))return;
+      const text=node.dataset.pathCandidate,label=node.dataset.pathLabel;
+      if(!result||typeof result.shown!=='string'||!text.startsWith(result.shown)||!result.path?.startsWith('/')||
+          /[\x00-\x1f\x7f]/.test(result.path)||label&&result.shown!==text){
+        // Keep text-node identity: demo mode retains the original copy text there.
+        node.replaceWith(...node.childNodes);return;
+      }
+      const link=el('a');link.href='#';link.dataset.localPath=result.path;
+      link.title='Preview image or reveal in file manager';link.textContent=label?node.textContent:result.shown;
+      const remainder=document.createDocumentFragment();
+      renderText(label?'':text.slice(result.shown.length),remainder);
+      node.replaceWith(link,remainder);
+    }
+    async function pump(){
+      if(running||closed)return;running=true;
+      try{while(pending.size&&!closed){
+        const nodes=[],texts=[];let size=0;
+        for(const node of pending){
+          const text=node.dataset.pathCandidate;
+          if(nodes.length>=32||size+text.length>32768)break;
+          pending.delete(node);if(!host.contains(node))continue;
+          const saved=cache.get(text);
+          if(saved&&saved.until>Date.now()){apply(node,saved.result);continue;}
+          nodes.push(node);texts.push(text);size+=text.length;
+        }
+        if(!nodes.length)continue;
+        let results;try{results=await source.probePaths(texts);}catch(_){results=[];}
+        if(closed)return;
+        nodes.forEach((node,i)=>{const result=results?.[i]??null;
+          cache.set(texts[i],{result,until:Date.now()+30000});apply(node,result);});
+        while(cache.size>1024)cache.delete(cache.keys().next().value);
+      }}finally{running=false;}
+    }
+    function collect(node){
+      if(node.nodeType!==1)return;
+      if(node.dataset?.pathCandidate)pending.add(node);
+      node.querySelectorAll('[data-path-candidate]').forEach(item=>pending.add(item));
+    }
+    const observer=new root.MutationObserver(records=>{
+      for(const record of records)for(const node of record.addedNodes)collect(node);
+      queueMicrotask(pump);
+    });
+    observer.observe(host,{childList:true,subtree:true});collect(host);queueMicrotask(pump);
+    return ()=>{closed=true;observer.disconnect();pending.clear();cache.clear();};
   }
   const ESCAPE=/[\\`*_{}[\]()#+\-.!|~<>]/;
   // The part after a link's or an image's label: ](target "title")
@@ -107,7 +222,7 @@
     const wrap=(tag,inner,cls)=>{flush();const node=el(tag,cls);if(depth<MAX_DEPTH)inline(inner,node,depth+1,inLink||tag==='a');else node.textContent=inner;host.appendChild(node);return node;};
     const image=(alt,target)=>{const label=el('span','markdown-image');label.textContent='[image'+(alt?': '+alt:'')+']';label.title=target;return label;};
     function link(target,fill){
-      flush();const href=safeUrl(target),node=el(href?'a':'span',href?'':'markdown-link-text');
+      flush();const href=safeUrl(target),path=!href&&barePath(target,0),node=path?.path&&path.last===target.length?pathNode(target,''):el(href?'a':'span',href?'':'markdown-link-text');
       if(href){node.href=href;node.target='_blank';node.rel='noopener noreferrer';node.referrerPolicy='no-referrer';node.title=href;}
       else if(target)node.title=target;
       fill(node);host.appendChild(node);
@@ -115,13 +230,25 @@
     const label=text=>node=>{if(depth<MAX_DEPTH)inline(text,node,depth+1,true);else node.textContent=text;};
     for(let i=0;i<text.length;){
       const ch=text[i];let m;
+      // A URL is one token before Markdown can consume its underscores or
+      // tildes. Link labels keep the same token as text, never a nested link.
+      if((ch==='h'||ch==='H')&&(m=bareUrl(text,i))){
+        if(inLink||!m.href)plain+=text.slice(i,m.end);
+        else{flush();const node=anchor(m.href);node.textContent=text.slice(i,m.last);host.appendChild(node);plain=text.slice(m.last,m.end);}
+        i=m.end;continue;
+      }
+      if((ch==='/'||ch==='~')&&(m=barePath(text,i))){
+        if(inLink||!m.path)plain+=text.slice(i,m.end);
+        else{flush();host.appendChild(pathNode(m.path));plain=text.slice(m.last,m.end);}
+        i=m.end;continue;
+      }
       if(ch==='\\'&&ESCAPE.test(text[i+1]||'')){plain+=text[i+1];i+=2;continue;}
       if(ch==='`'){
         let run=1;while(text[i+run]==='`')run++;
         let end=runs.get(run);
         if(end===undefined||(end!==-1&&end<i+run)){end=text.indexOf('`'.repeat(run),i+run);runs.set(run,end);}
         if(end>0&&end-i<=SPAN&&text[end+run]!=='`'){
-          flush();const code=el('code');code.textContent=text.slice(i+run,end).replace(/^ ([\s\S]*\S[\s\S]*) $/,'$1');host.appendChild(code);i=end+run;continue;
+          flush();const code=el('code'),value=text.slice(i+run,end).replace(/^ ([\s\S]*\S[\s\S]*) $/,'$1');if(inLink)code.textContent=value;else renderText(value,code);host.appendChild(code);i=end+run;continue;
         }
         plain+='`'.repeat(run);i+=run;continue;
       }
@@ -167,29 +294,92 @@
     const item=ITEM.exec(line);if(item&&line.slice(item[0].length).trim()&&(/^[-+*]$/.test(item[2])||/^1[.)]$/.test(item[2])))return true;
     return isDelimiter(cells(line),next===undefined||next.length>LONG_LINE?null:cells(next));
   }
-  function codeBlock(text,cls='markdown-code'){const pre=el('pre',cls),code=el('code');code.textContent=text;pre.appendChild(code);return pre;}
+  function copyButton(text){
+    const button=el('button','cockpit-control conversation-code-copy');button.type='button';button.textContent='Copy';button.setAttribute('aria-label','Copy code');
+    let timer=0;
+    button.addEventListener('click',async event=>{
+      event.stopPropagation();clearTimeout(timer);
+      try{await navigator.clipboard.writeText(text);button.textContent='Copied';}
+      catch(_){button.textContent='Copy unavailable';}
+      timer=setTimeout(()=>{button.textContent='Copy';},1800);
+    });
+    button.addEventListener('keydown',event=>event.stopPropagation());return button;
+  }
+  function codeBlock(text,cls='markdown-code',controls=false,language='',copyText=text){
+    const pre=el('pre',cls),code=el('code');renderText(text,code);pre.appendChild(code);
+    if(!controls)return pre;
+    const box=el('div','conversation-code'),head=el('div','conversation-code-head'),label=el('span','conversation-code-language');label.textContent=language||'Code';
+    head.append(label,copyButton(copyText));pre.tabIndex=0;pre.setAttribute('role','region');pre.setAttribute('aria-label',language?language+' code':'Code');box.append(head,pre);return box;
+  }
+  const COMMAND_TAGS=['bash-input','bash-stdout','bash-stderr','command-name','command-message','command-args','local-command-stdout','local-command-stderr','local-command-caveat'];
+  // These entities are already present in native CLI records. Decode once,
+  // only inside complete known records; never parse their contents as HTML.
+  const decodeCommand=text=>text.replace(/&(?:gt|lt|amp|quot|#39);/g,value=>({'&gt;':'>','&lt;':'<','&amp;':'&','&quot;':'"','&#39;':"'"})[value]);
+  function commandRecord(text){
+    const values=Object.create(null);let i=0;
+    while(i<text.length){
+      while(i<text.length&&/\s/u.test(text[i]))i++;
+      if(i===text.length)break;
+      const tag=COMMAND_TAGS.find(tag=>text.startsWith('<'+tag+'>',i));
+      if(!tag||Object.prototype.hasOwnProperty.call(values,tag))return null;
+      const start=i+tag.length+2,end=text.indexOf('</'+tag+'>',start);if(end<0)return null;
+      values[tag]=decodeCommand(text.slice(start,end));i=end+tag.length+3;
+    }
+    const keys=Object.keys(values);if(!keys.length)return null;
+    const bash=keys.every(key=>key.startsWith('bash-')),slash=keys.every(key=>key.startsWith('command-'));
+    if(bash){
+      if('bash-input' in values&&keys.length!==1)return null;
+      return {shell:true,command:values['bash-input']??null,outputs:keys.filter(key=>key!=='bash-input').map(key=>({label:key.slice(5),text:values[key]}))};
+    }
+    if(slash&&values['command-name'])return {command:values['command-name']+(values['command-args']?' '+values['command-args']:''),outputs:[]};
+    if(keys.every(key=>['local-command-stdout','local-command-stderr'].includes(key)))return {command:null,outputs:keys.map(key=>({label:key==='local-command-stdout'?'output':'stderr',text:values[key]}))};
+    if(keys.length===1&&keys[0]==='local-command-caveat')return {command:null,notice:values[keys[0]],outputs:[]};
+    return null;
+  }
+  function submissionText(text){
+    const record=commandRecord(text);
+    return record?.command!==null&&record?.command!==undefined?(text.trimStart().startsWith('<bash-input>')?'! ':'')+record.command:text;
+  }
+  function renderCommand(text,host){
+    const record=commandRecord(text);if(!record)return false;
+    if(record.command!==null){const box=codeBlock('$ '+record.command,'markdown-code',true,'Command',record.command);box.className+=' conversation-command';host.appendChild(box);}
+    if(record.notice){const note=el('div','conversation-command-notice');renderText(record.notice,note);host.appendChild(note);}
+    for(const output of record.outputs)if(output.text){
+      const box=codeBlock(output.text,'markdown-code',true,output.label);
+      if(output.text.split('\n').length>8||output.text.length>1600){
+        const pre=box.querySelector('pre'),head=box.querySelector('.conversation-code-head'),toggle=el('button','cockpit-control conversation-output-toggle');
+        toggle.type='button';toggle.textContent='Show all';toggle.setAttribute('aria-expanded','false');pre.classList.add('conversation-output-collapsed');
+        pre.id='conversation-output-'+Math.random().toString(36).slice(2);toggle.setAttribute('aria-controls',pre.id);
+        toggle.addEventListener('click',event=>{event.stopPropagation();const open=toggle.getAttribute('aria-expanded')!=='true';toggle.setAttribute('aria-expanded',String(open));toggle.textContent=open?'Show less':'Show all';pre.classList.toggle('conversation-output-collapsed',!open);});
+        toggle.addEventListener('keydown',event=>event.stopPropagation());head.insertBefore(toggle,head.lastChild);
+      }
+      host.appendChild(box);
+    }
+    return true;
+  }
   // `tight`: a list item without blank lines; its text needs no paragraph.
-  function blocks(lines,host,depth,tight=false){
+  function blocks(lines,host,depth,tight=false,options={}){
     for(let i=0;i<lines.length;){
       const line=lines[i];let m;
       if(!line.trim()){i++;continue;}
-      if(depth>=MAX_DEPTH){host.appendChild(codeBlock(lines.slice(i).join('\n')));return;}
+      if(depth>=MAX_DEPTH){host.appendChild(codeBlock(lines.slice(i).join('\n'),'markdown-code',options.codeControls));return;}
       const long=line.length>LONG_LINE;
       if(!long&&(m=fenceOf(line))){
-        const body=[];i++;
+        const body=[];let closed=false;i++;
         while(i<lines.length){
           const close=lines[i].length<=LONG_LINE?FENCE.exec(lines[i]):null;
-          if(close&&close[1][0]===m.mark[0]&&close[1].length>=m.mark.length&&!close[2].trim()){i++;break;}
+          if(close&&close[1][0]===m.mark[0]&&close[1].length>=m.mark.length&&!close[2].trim()){closed=true;i++;break;}
           body.push(lines[i++]);
         }
-        const pre=codeBlock(body.join('\n'));if(m.language)pre.dataset.language=m.language.slice(0,40);host.appendChild(pre);continue;
+        const value=body.join('\n'),copyValue=value+(closed&&body.length?'\n':'');
+        const pre=codeBlock(options.codeControls?copyValue:value,'markdown-code',options.codeControls,m.language.slice(0,40),copyValue);if(m.language)pre.dataset.language=m.language.slice(0,40);host.appendChild(pre);continue;
       }
       if(!long&&(m=headingOf(line))){const heading=el('h'+m.level,'markdown-heading');inline(m.text,heading,depth);host.appendChild(heading);i++;continue;}
       if(!long&&RULE.test(line)){host.appendChild(el('hr'));i++;continue;}
       if(!long&&QUOTE.test(line)){
         const inner=[];
         while(i<lines.length&&lines[i].trim()&&(QUOTE.test(lines[i])||inner.length&&!interrupts(lines[i],lines[i+1])))inner.push(lines[i++].replace(QUOTE,''));
-        const quote=el('blockquote');blocks(inner,quote,depth+1);host.appendChild(quote);continue;
+        const quote=el('blockquote');blocks(inner,quote,depth+1,false,options);host.appendChild(quote);continue;
       }
       if(!long&&(m=ITEM.exec(line))){
         const ordered=/\d/.test(m[2]),list=el(ordered?'ol':'ul'),base=m[1].length,kind=ordered?m[2].slice(-1):m[2];
@@ -217,7 +407,7 @@
           }
           const loose=item.some((text,n)=>!text.trim()&&n<item.length-1);
           if(!loose&&!item.slice(1).some(text=>interrupts(text)||ITEM.test(text)||/^( {4}|\t)/.test(text)))inline(item.join('\n'),li,depth);
-          else blocks(item,li,depth+1,!loose);
+          else blocks(item,li,depth+1,!loose,options);
           list.appendChild(li);
           // Blank lines between items keep one list.
           let k=i;while(k<lines.length&&!lines[k].trim())k++;
@@ -238,7 +428,7 @@
         const body=[];
         while(i<lines.length&&(/^( {4}|\t)/.test(lines[i])||!lines[i].trim()))body.push(dedent(lines[i++],4));
         while(body.length&&!body[body.length-1].trim())body.pop();
-        host.appendChild(codeBlock(body.join('\n')));continue;
+        host.appendChild(codeBlock(body.join('\n'),'markdown-code',options.codeControls));continue;
       }
       const paragraph=[line.trim()];i++;
       while(i<lines.length&&lines[i].trim()&&!interrupts(lines[i],lines[i+1]))paragraph.push(lines[i++].trim());
@@ -246,15 +436,15 @@
       else{const p=el('p');inline(paragraph.join('\n'),p,depth);host.appendChild(p);}
     }
   }
-  function renderDocument(text,host){
+  function renderDocument(text,host,options={}){
     const lines=String(text).replace(/\r\n?/g,'\n').split('\n');let start=0;
     // YAML front matter (Obsidian notes) stays as text at the top.
     if(lines[0]==='---'){
       const close=lines.indexOf('---',1);
-      if(close>0&&close<=200){host.appendChild(codeBlock(lines.slice(0,close+1).join('\n'),'markdown-code markdown-front-matter'));start=close+1;}
+      if(close>0&&close<=200){host.appendChild(codeBlock(lines.slice(0,close+1).join('\n'),'markdown-code markdown-front-matter',options.codeControls));start=close+1;}
     }
-    blocks(lines.slice(start),host,0);
+    blocks(lines.slice(start),host,0,false,options);
     return host;
   }
-  root.OrreryConversationMarkdown=Object.freeze({parse,render,renderDocument});
+  root.OrreryConversationMarkdown=Object.freeze({parse,render,renderDocument,renderText,observePaths,renderCommand,submissionText,commandRecord});
 })(typeof window==='undefined'?globalThis:window);

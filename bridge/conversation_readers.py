@@ -6,6 +6,7 @@ Hermes is a bounded active-segment snapshot because native rows can be rewritten
 from __future__ import annotations
 
 import hashlib
+import html
 import io
 import json
 import os
@@ -17,9 +18,10 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from urllib.parse import quote
 from conversation_mail import received, sent
+from conversation_images import hermes_content
 
 from conversation_history import (HistoryUnavailable, MAX_SCAN, MAX_TEXT, PAGE_SIZE,
-    open_bound_transcript, assert_transcript_identity, read_codex_page)
+    open_bound_transcript, assert_transcript_identity, read_codex_page, recorded_model)
 
 try:
     import zstandard as zstd
@@ -30,6 +32,10 @@ MAX_RECORD = 1024 * 1024
 MAX_BLOCKS = 64
 NATIVE_CURSOR = re.compile(r'([a-f0-9]{24}):(\d{1,20}):(\d{1,10}):(\d{1,3})\Z')
 MAGIC = b'\x28\xb5\x2f\xfd'
+CLAUDE_COMPACTION_PREFIX = ('This session is being continued from a previous conversation that ran out of context. '
+                            'The summary below covers')
+HERMES_SYSTEM_KINDS = frozenset({'model_switch', 'personality_switch', 'async_delegation_complete',
+                               'process_complete', 'auto_continue'})
 
 
 def provider(row):
@@ -63,11 +69,62 @@ def tool_event(name,ts,*,result=False,failed=False):
                 text=(name[:160]+(' · failed' if failed else ' · completed')) if result else name[:160],ts=ts)
 
 
-def blocks_text(content):
+def blocks_text(content, *, block_limit=MAX_TEXT):
     if isinstance(content,str):return content
     if not isinstance(content,list):return ''
-    return '\n'.join(b['text'][:MAX_TEXT] for b in content[:MAX_BLOCKS] if isinstance(b,dict)
+    return '\n'.join(b['text'][:block_limit] for b in content[:MAX_BLOCKS] if isinstance(b,dict)
         and b.get('type')=='text' and isinstance(b.get('text'),str))[:MAX_TEXT+1]
+
+
+def is_claude_summary(text, item):
+    origin = item.get('origin')
+    human = isinstance(origin, dict) and origin.get('kind') == 'human'
+    return item.get('isCompactSummary') is True or ('isCompactSummary' not in item and
+        not human and isinstance(text, str) and text.lstrip().startswith(CLAUDE_COMPACTION_PREFIX))
+
+
+def claude_text(text, role, ts, item):
+    """Keep harness notices out of human prompts and send matching."""
+    if role != 'user' or not isinstance(text, str):
+        return text_event(text, role, ts)
+    origin = item.get('origin')
+    origin = origin.get('kind') if isinstance(origin, dict) else None
+    body = text.lstrip()[:MAX_TEXT]
+    # The native marker is authoritative. Only unmarked older records need
+    # the stock prefix; an explicitly human prompt stays a human prompt.
+    if is_claude_summary(text, item):
+        return dict(kind='system', role='system', text='Context compacted', ts=ts,
+                    system_detail=text[:MAX_TEXT], truncated=len(text)>MAX_TEXT)
+    # An explicit human origin wins over tag-looking text in a prompt. Older
+    # CLI versions lack origin, so only a leading known tag is a fallback.
+    if origin == 'human' or not (item.get('promptSource') == 'system' or
+            origin in {'task-notification', 'system'} or
+            body.startswith(('<task-notification>', '<system-reminder>'))):
+        return text_event(text, role, ts)
+    def field(name):
+        start = body.find('<' + name + '>')
+        if start < 0:
+            return ''
+        start += len(name) + 2
+        end = body.find('</' + name + '>', start)
+        return html.unescape(body[start:end]).strip() if end >= 0 else ''
+    if body.startswith('<task-notification>') or origin == 'task-notification':
+        status = field('status')
+        title = {'completed': 'Background task completed', 'failed': 'Background task failed',
+                 'running': 'Background task running'}.get(status, 'Background task update')
+        summary = field('summary')
+        name = re.match(r'Background (?:command|task) "([^"\n]{1,200})"', summary)
+        if name:
+            short = ' '.join(name[1].split())
+            title += ' · ' + short[:48] + ('…' if len(short) > 48 else '')
+        detail = '\n'.join(value for value in [summary,
+            'Status: ' + status if status else '',
+            'Output: ' + field('output-file') if field('output-file') else ''] if value)
+    else:
+        title = 'System notice'
+        detail = field('system-reminder') or body
+    return dict(kind='system', role='system', text=title, ts=ts,
+                system_detail=detail[:MAX_TEXT], truncated=len(text)>MAX_TEXT)
 
 
 def normalize(item,p,sid):
@@ -76,15 +133,37 @@ def normalize(item,p,sid):
     def add(index,event):
         if event:out.append((index,event))
     if p=='claude':
-        if item.get('sessionId')!=sid or item.get('isSidechain') or item.get('isMeta'):return []
+        if (item.get('sessionId')!=sid or item.get('isSidechain') or
+                item.get('isMeta') and not (item.get('type')=='user' and item.get('isCompactSummary') is True)):return []
         role=item.get('type');message=item.get('message')
+        if role=='attachment':
+            queued=item.get('attachment')
+            # Mid-turn human prompts are recorded as consumed attachments,
+            # not user messages. Queue operations also cover ordinary turns;
+            # rendering those would duplicate their eventual user record.
+            if (not isinstance(queued,dict) or queued.get('type')!='queued_command'
+                    or queued.get('commandMode')!='prompt' or queued.get('isMeta')
+                    or not isinstance(queued.get('origin'),dict) or queued['origin'].get('kind')!='human'):
+                return []
+            role='user';message=dict(role=role,content=queued.get('prompt'))
+            item=dict(item,origin=queued['origin'],timestamp=queued.get('timestamp') or item.get('timestamp'))
         if role not in {'user','assistant'} or not isinstance(message,dict) or message.get('role')!=role:return []
         content=message.get('content');ts=str(item.get('timestamp') or '')[:128]
-        if isinstance(content,str):add(0,text_event(content,role,ts))
+        summary=blocks_text(content,block_limit=MAX_TEXT+1) if role=='user' and isinstance(content,list) else None
+        if summary is not None and is_claude_summary(summary,item):
+            add(0,claude_text(summary,role,ts,item));return out
+        if isinstance(content,str):add(0,claude_text(content,role,ts,item))
         elif isinstance(content,list):
+            images=sum(isinstance(b,dict) and b.get('type')=='image' for b in content[:MAX_BLOCKS])
             for i,b in enumerate(content[:MAX_BLOCKS]):
                 if not isinstance(b,dict):continue
-                if b.get('type')=='text':add(i,text_event(b.get('text'),role,ts))
+                if b.get('type')=='text':
+                    event=claude_text(b.get('text'),role,ts,item)
+                    # Claude exposes text and attachments as separate events.
+                    # Keep their shared native provenance for send matching;
+                    # do not duplicate the image references on the text event.
+                    if images and event and event.get('role')=='user' and event.get('kind')=='text':event['input_image_count']=images
+                    add(i,event)
                 elif b.get('type')=='tool_use' and role=='assistant':add(i,sent(tool_event(b.get('name'),ts),b.get('name'),b.get('input')))
                 elif b.get('type')=='tool_result' and role=='user':
                     add(i,tool_event('Tool result',ts,result=True,failed=bool(b.get('is_error'))))
@@ -94,7 +173,9 @@ def normalize(item,p,sid):
         kind=item.get('type');data=item.get('data');ts=epoch(item.get('time'),1000)
         if not isinstance(data,dict):return []
         if kind=='user/message' and isinstance(data.get('source'),dict) and data['source'].get('kind')=='user':
-            add(0,text_event(blocks_text(data.get('content')),'user',ts))
+            content=data.get('content')
+            images=isinstance(content,list) and any(isinstance(b,dict) and b.get('type')=='image' for b in content[:MAX_BLOCKS])
+            add(0,text_event(blocks_text(content) or ('[image attachment]' if images else ''),'user',ts))
         elif kind=='assistant/message' and isinstance(data.get('message'),dict):
             add(0,text_event(blocks_text(data['message'].get('content')),'assistant',ts))
         elif kind=='tool/call':add(0,sent(tool_event(data.get('name'),ts),data.get('name'),data.get('arguments')))
@@ -102,7 +183,15 @@ def normalize(item,p,sid):
             add(0,tool_event('Tool result',ts,result=True,failed=bool(data['message'].get('isError'))))
     elif p=='hermes':
         ts=epoch(item.get('timestamp'));role=item.get('role')
-        if role in {'user','assistant'}:add(0,text_event(item.get('content'),role,ts))
+        if role=='user' and item.get('display_kind') in HERMES_SYSTEM_KINDS and isinstance(item.get('content'),str):
+            text=item['content']
+            add(0,dict(kind='system',role='system',text='System notice',ts=ts,
+                       system_detail=text[:MAX_TEXT],truncated=len(text)>MAX_TEXT))
+        elif role=='user':
+            content=hermes_content(item.get('content'))
+            images=isinstance(content,list) and any(isinstance(b,dict) and b.get('type')=='image_url' for b in content[:MAX_BLOCKS])
+            add(0,text_event(blocks_text(content) or ('[image attachment]' if images else ''),role,ts))
+        elif role=='assistant':add(0,text_event(item.get('content'),role,ts))
         if role=='assistant':
             calls=item.get('tool_calls')
             if isinstance(calls,str):
@@ -114,12 +203,29 @@ def normalize(item,p,sid):
         elif role=='tool':
             result=parse(item.get('content') or '{}')
             add(0,tool_event(item.get('tool_name') or 'Tool result',ts,result=True,failed=bool(result.get('error') or result.get('is_error') or result.get('success') is False)))
+    # Model metadata belongs to the record, even when it has many text blocks.
+    assistant_text=[event for _,event in out if event.get('kind')=='text' and event.get('role')=='assistant']
+    if assistant_text:
+        if p=='claude':value=item['message'].get('model')
+        elif p=='dsh':value=item['data']['message'].get('model')
+        else:value=item.get('model') or parse(item.get('display_metadata') or '{}').get('model')
+        model=recorded_model(value)
+        if model:
+            for event in assistant_text:event['model']=model
     return out
 
 
 def artifact_item(item,p,index):
-    """Translate known structured calls only, preserving existing artifact policy."""
+    """既知の tool と入力画像の記録だけを渡す。通常の文を引数と解釈しない。"""
     name=value=None
+    if p=='claude' and item.get('type')=='user':
+        content=item.get('message',{}).get('content')
+        if isinstance(content,list):content=content[index:index+1]
+        return dict(type='recorded_user_input',provider=p,content=content)
+    if p=='dsh' and item.get('type')=='user/message' and item.get('data',{}).get('source',{}).get('kind')=='user':
+        return dict(type='recorded_user_input',provider=p,content=item['data'].get('content'))
+    if p=='hermes' and item.get('role')=='user' and index==0:
+        return dict(type='recorded_user_input',provider=p,content=hermes_content(item.get('content')))
     if p=='claude':
         content=item.get('message',{}).get('content')
         if isinstance(content,list) and index<len(content) and isinstance(content[index],dict):
@@ -225,7 +331,7 @@ class Reader:
         if end>len(data):return None
         if not decode:return offset+end
         try:
-            with zstd.ZstdDecompressor(max_window_size=MAX_SCAN//1024).stream_reader(io.BytesIO(data[:end])) as reader:
+            with zstd.ZstdDecompressor(max_window_size=MAX_SCAN).stream_reader(io.BytesIO(data[:end])) as reader:
                 decoded=reader.read(MAX_SCAN+1)
             if len(decoded)>MAX_SCAN:raise HistoryUnavailable('record_too_large')
             return decoded,offset+end
@@ -471,8 +577,11 @@ class Reader:
         large rows costs what the snapshot costs.
         """
         self.db.row_factory=sqlite3.Row
-        rows=self.db.execute('''SELECT id,role,substr(content,1,65537) AS content,
-            substr(tool_calls,1,1048576) AS tool_calls,tool_call_id,tool_name,timestamp,display_metadata
+        rows=self.db.execute('''SELECT id,role,
+            CASE WHEN substr(CAST(content AS BLOB),1,6)=X'006a736f6e3a'
+                THEN CAST(substr(CAST(content AS BLOB),1,65537) AS TEXT)
+                ELSE substr(content,1,65537) END AS content,
+            substr(tool_calls,1,1048576) AS tool_calls,tool_call_id,tool_name,timestamp,display_kind,display_metadata
             FROM messages WHERE session_id=? AND active=1 AND role IN ('user','assistant','tool')
             AND COALESCE(display_kind,'')!='hidden' AND COALESCE(_compressed_summary,0)=0
             AND CASE WHEN display_metadata IS NULL THEN 1 WHEN json_valid(display_metadata)
@@ -543,8 +652,11 @@ class Reader:
         pos,line=location
         if self.provider=='hermes':
             self.db.row_factory=sqlite3.Row
-            found=self.db.execute('''SELECT id,role,substr(content,1,65537) AS content,
-                substr(tool_calls,1,1048576) AS tool_calls,tool_call_id,tool_name,timestamp,display_metadata
+            found=self.db.execute('''SELECT id,role,
+                CASE WHEN substr(CAST(content AS BLOB),1,6)=X'006a736f6e3a'
+                    THEN CAST(substr(CAST(content AS BLOB),1,65537) AS TEXT)
+                    ELSE substr(content,1,65537) END AS content,
+                substr(tool_calls,1,1048576) AS tool_calls,tool_call_id,tool_name,timestamp,display_kind,display_metadata
                 FROM messages WHERE session_id=? AND id=? AND active=1 AND role IN ('user','assistant','tool')
                 AND COALESCE(display_kind,'')!='hidden' AND COALESCE(_compressed_summary,0)=0
                 AND CASE WHEN display_metadata IS NULL THEN 1 WHEN json_valid(display_metadata)

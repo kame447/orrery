@@ -137,6 +137,12 @@ tile に mouse を乗せると、agent 名の右に copy icon が出ます。ク
 
 クリップボードが使えない window や、ブラウザが書き込みを許可しなかった場合は `COPY FAILED · …` と出ます。3秒待っても応答がない場合も失敗として表示します。Select mode の間は icon を出しません。
 
+### Role と Task の編集
+
+rosterのカードにmouseを重ねると、名前の右に鉛筆iconが出ます。キーボードでもTabで選べます。押すとカードの下にRoleとTaskの編集欄が開き、EnterまたはSaveで保存、EscまたはCancelで取り消します。Taskで改行する場合はShift+Enterを使います。
+
+Roleは40字、Taskは200字までです。TaskはMailに登録された説明の表示上書きとして保存し、空欄で保存すると元の説明に戻ります。上書き中は説明のtitleで元の登録値を確認できます。保存後は名簿・Splitのrole・Planetariumへすぐ反映します。Taskの編集にはdashboard API 38以降が必要で、古いdashboardではRoleだけを編集できます。
+
 ### Pin
 
 何体も動いていると、roster は状態の順に並び替わり続けます。親の agent やレビュー役など、いつも見る agent は pin しておくと、並び替えに関係なく上に留まります。
@@ -213,6 +219,14 @@ active な session label / pane tab を再クリックしても末尾へ移動�
 backend は起動時に live tmux session ごとに recorder connection を一つ接続します。browser からの pane attach は tile / palette の操作時に遅延実行されます。
 
 上に scroll して過去の出力を読んでいる間は、新しい出力が来ても末尾へ引き戻しません。backend を再起動すると、cockpit は page を自動で読み直します（composer の下書きは残る）。
+
+### Reader で承認する
+
+PC の Reader では、承認待ちになると入力欄のすぐ上に `Approval needed` の帯が出ます。クリックまたは Enter で全文と選択肢を開くと、「今回だけ許可」に focus が移り、もう一度 Enter で送れます。継続的に許可する選択肢は既定になりません。
+
+対応するのは Codex の MCP tool の4択、sandbox 外のコマンドの3択、Claude の作業外 Read の4択です。全文を読めない画面や別の形では、`Open terminal to review` から同じ pane を開いて確認します。押す直前に画面が変わっていればキーを送らず、確認し直す帯に更新します。
+
+`Response sent` はキーが届いたことを表し、処理の成功を保証しません。画面が解消するまでは再送できません。`Outcome unknown` が出た場合は自動再送せず、Terminal で確認してください。
 
 ### スマホのTerminal（別途有効化）
 

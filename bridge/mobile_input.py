@@ -22,7 +22,8 @@ CONTRACT='orrery-mobile-pane-v1'
 MAX_TEXT_BYTES=4096
 MAX_JSON_BYTES=16384
 MAX_CAPTURE_BYTES=65536
-MAX_PREVIEW_BYTES=6144
+MAX_PREVIEW_BYTES=12288
+MAX_PREVIEW_LINES=120
 NAME=re.compile(r'[A-Za-z][A-Za-z0-9_-]{0,95}\Z')
 REVISION=re.compile(r'[a-f0-9]{64}\Z')
 EPOCH=re.compile(r'[a-f0-9]{32}\Z')
@@ -40,9 +41,9 @@ def encode_json(value):
 
 def revision(value):return hashlib.sha256(encode_json(value)).hexdigest()
 
-def terminal_text(lines):
+def terminal_text(lines, *, max_lines=40, max_bytes=6144):
     if not isinstance(lines,list) or not all(isinstance(x,str) for x in lines):raise InputRefused('preview_unavailable')
-    text='\n'.join(lines[-40:]);original=text
+    text='\n'.join(lines[-max_lines:]);original=text
     # Remove complete and unterminated OSC/DCS/CSI sequences. Never interpret
     # output as HTML, URLs, input, or instructions for the reader itself.
     text=re.sub(r'(?:\x1b\]|\x9d).*?(?:\x07|\x1b\\|\x9c|$)','',text,flags=re.S)
@@ -50,8 +51,8 @@ def terminal_text(lines):
     text=re.sub(r'(?:\x1b\[|\x9b)[0-?]*[ -/]*(?:[@-~]|$)','',text)
     text=re.sub(r'\x1b[ -/]*[0-~]?','',text)
     text=''.join(c for c in text if c=='\n' or unicodedata.category(c) not in {'Cc','Cf','Cs','Zl','Zp'})
-    removed=text!=original;raw=text.encode('utf-8');shortened=len(lines)>40 or len(raw)>MAX_PREVIEW_BYTES
-    if len(raw)>MAX_PREVIEW_BYTES:text=raw[-MAX_PREVIEW_BYTES:].decode('utf-8','ignore')
+    removed=text!=original;raw=text.encode('utf-8');shortened=len(lines)>max_lines or len(raw)>max_bytes
+    if len(raw)>max_bytes:text=raw[-max_bytes:].decode('utf-8','ignore')
     return text,shortened,removed
 
 def validate_text(value):
@@ -153,8 +154,8 @@ async def confirmed_batch(bridge,pane_id,text,*,admission,valid,claim,deadline=N
             return 'unknown'
         return 'refused'
 
-def decode_json(data):
-    if not isinstance(data,bytes) or len(data)>MAX_JSON_BYTES:
+def decode_json(data, *, max_bytes=MAX_JSON_BYTES):
+    if not isinstance(data,bytes) or len(data)>max_bytes:
         raise InputRefused('input_json_invalid')
     def pairs(items):
         value={}
@@ -315,8 +316,9 @@ class PaneResolver:
 
 class InputCoordinator:
     """One reader/owner scoped, bounded, memory-only pane/confirmation authority."""
-    def __init__(self,resolver,get_bridge,*,enabled=False,clock=time.monotonic):
+    def __init__(self,resolver,get_bridge,*,enabled=False,clock=time.monotonic,image_workspace=None):
         self.resolver=resolver;self.get_bridge=get_bridge;self.enabled=enabled;self.clock=clock
+        self.image_workspace=image_workspace
         self.fresh=getattr(resolver,'fresh',False)
         self.epoch=secrets.token_hex(16);self.choices={};self.intents={};self.busy=set();self.rates={};self.previews=set()
 
@@ -372,9 +374,10 @@ class InputCoordinator:
         return await asyncio.wait_for(asyncio.to_thread(self.resolver.read,row['bridge'],row['pane_id'],deadline),
                                       max(.001,deadline-time.monotonic()))
 
-    async def request(self,operation,payload):
+    async def request(self,operation,payload, *, expanded_preview=False):
         fields={'capability':set(),'targets':{'name'},'preview':{'choice'},'prepare':{'choice','revision','text'},
-                'commit':{'intent','confirmation'},'cancel':{'intent'},'status':{'intent'}}
+                'commit':{'intent','confirmation'},'cancel':{'intent'},'status':{'intent'},
+                'image':{'choice','revision','image'}}
         if self.fresh and operation=='targets' and isinstance(payload,dict) and ('mail_instance_id' in payload or 'mail_agent_id' in payload):
             fields['targets']|={'mail_instance_id','mail_agent_id'}
             if not _matches(EPOCH,payload.get('mail_instance_id')) or not _integer(payload.get('mail_agent_id')):
@@ -389,7 +392,24 @@ class InputCoordinator:
         if operation=='capability':return self._reply(api=34 if self.fresh else 31,enabled=self.enabled,
             supported='fresh-managed-pane' if self.fresh else 'legacy-managed-pane',ack='tmux-command-accepted')
         if payload['epoch']!=self.epoch:raise InputRefused('input_epoch_changed')
-        if operation in {'targets','preview','prepare'} and not self.enabled:raise InputRefused('input_disabled')
+        if operation in {'targets','preview','prepare','image'} and not self.enabled:raise InputRefused('input_disabled')
+        if operation=='image':
+            import mobile_image
+            row=await self._choice(payload['choice'],scope)
+            proof=await self._read(row,time.monotonic()+3)
+            if (row['proof'] is None or proof!=row['proof'] or payload['revision']!=revision(proof)):
+                raise InputRefused('input_target_changed')
+            target=dict(row['target'],revision=revision(proof))
+            root=(await self.image_workspace(row)) if mobile_image.available() and self.image_workspace else None
+            # Resolve the same pane again after the workspace binding read.
+            if (not self.enabled or self.choices.get(payload['choice']) is not row or self.clock()>=row['expires']
+                    or await self._bridge(row) is not row['bridge'] or await self._read(row,time.monotonic()+3)!=proof):
+                raise InputRefused('input_target_changed')
+            if payload['image'] is None:return self._reply(target=target,enabled=root is not None)
+            if root is None:raise InputRefused('image_workspace_unavailable')
+            try:path=mobile_image.save_image(root,payload['image'])
+            except (ValueError,OSError) as error:raise InputRefused(str(error) if isinstance(error,ValueError) else 'image_save_failed') from None
+            return self._reply(target=target,enabled=True,path=path)
         if operation=='targets':
             name=payload['name']
             if not _matches(NAME,name):raise InputRefused('input_target_invalid')
@@ -440,13 +460,28 @@ class InputCoordinator:
                 raise
             if operation=='preview':
                 try:
-                    result=await row['bridge'].capture_mobile_preview(row['pane_id'],proof['height'],deadline=deadline)
+                    max_lines,max_bytes=(MAX_PREVIEW_LINES,MAX_PREVIEW_BYTES) if expanded_preview else (40,6144)
+                    options={'max_lines':max_lines} if expanded_preview else {}
+                    result=await row['bridge'].capture_mobile_preview(row['pane_id'],proof['height'],deadline=deadline,**options)
                     after=await self._read(row,deadline)
                     if (not self.enabled or after!=proof or self.choices.get(key) is not row or self.clock()>=row['expires']
                             or await self._bridge(row) is not row['bridge']):raise InputRefused('input_target_changed')
-                    text,truncated,controls=terminal_text(result.lines)
-                    value=self._reply(target=target,text=text,truncated=truncated,controls_removed=controls,
-                        observed_at=int(time.time()),max_lines=40,max_bytes=MAX_PREVIEW_BYTES)
+                    text,truncated,controls=terminal_text(result.lines,max_lines=max_lines,max_bytes=max_bytes)
+                    value=self._reply(target=target,text='',truncated=truncated,controls_removed=controls,
+                        observed_at=int(time.time()),max_lines=max_lines,max_bytes=max_bytes)
+                    # Fit the complete serialized envelope, including escaped quotes.
+                    budget=MAX_JSON_BYTES-len(encode_json(value))
+                    size=lambda tail:len(json.dumps(tail,ensure_ascii=False).encode('utf-8'))-2
+                    if size(text)>budget:
+                        low,high=0,len(text)
+                        while low<high:
+                            middle=(low+high+1)//2
+                            if size(text[-middle:])<=budget:low=middle
+                            else:high=middle-1
+                        text=text[-low:] if low else ''
+                        value['truncated']=True
+                    value['text']=text
+                    encode_json(value)
                     row['proof']=proof
                     # A foreground preview lease can renew. Prepared Review
                     # proof/text and its independent 30s expiry never renew.
@@ -503,7 +538,8 @@ class InputCoordinator:
 def install_routes(app,coordinator):
     """Install only the finite loopback protocol, with its own request boundary."""
     from aiohttp import web
-    operations={'capability','targets','preview','prepare','commit','cancel','status'}
+    operations={'capability','targets','preview','prepare','commit','cancel','status','image'}
+    from mobile_image import MAX_IMAGE_JSON
     headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',
              'Referrer-Policy':'no-referrer','Content-Security-Policy':"default-src 'none'; frame-ancestors 'none'"}
     def reply(value,status=200):
@@ -524,20 +560,27 @@ def install_routes(app,coordinator):
                 'Upgrade','Expect','X-HTTP-Method-Override','X-Method-Override','X-HTTP-Method',
                 'Forwarded','X-Forwarded-Host','X-Forwarded-Proto','Tailscale-User-Login')): return False
         lengths=request.headers.getall('Content-Length',[])
-        return (len(lengths)==1 and re.fullmatch(r'[0-9]{1,5}',lengths[0]) is not None and 0<int(lengths[0])<=MAX_JSON_BYTES
+        limit=MAX_IMAGE_JSON if operation=='image' else MAX_JSON_BYTES
+        return (len(lengths)==1 and re.fullmatch(r'[0-9]{1,8}',lengths[0]) is not None and 0<int(lengths[0])<=limit
                 and request.headers.get('Sec-Fetch-Site','').lower() in {'','none','same-origin'})
     async def handler(request):
         operation=request.match_info['operation']
         if not admitted(request,operation): return reply({'error':'input_request_denied'},403)
         try:
-            data=await asyncio.wait_for(request.content.readexactly(int(request.headers['Content-Length'])),5)
-            payload=decode_json(data)
+            limit=MAX_IMAGE_JSON if operation=='image' else MAX_JSON_BYTES
+            data=await asyncio.wait_for(request.content.readexactly(int(request.headers['Content-Length'])),20 if operation=='image' else 5)
+            payload=decode_json(data,max_bytes=limit)
         except (Exception,asyncio.CancelledError):
             return reply({'error':'input_request_invalid'},400)
+        limits=request.headers.getall('X-ORRERY-Mobile-Preview',[])
+        if limits and (operation!='preview' or limits!=['120/12288']):
+            return reply({'error':'input_request_denied'},403)
         try:
-            return reply(await coordinator.request(operation,payload))
-        except InputRefused:
-            return reply({'error':'input_unavailable'},403)
+            options={'expanded_preview':True} if limits else {}
+            return reply(await coordinator.request(operation,payload,**options))
+        except InputRefused as error:
+            reason=str(error) if operation=='image' and str(error).startswith('image_') else 'input_unavailable'
+            return reply({'error':reason},403)
         except Exception:
             return reply({'error':'input_unavailable'},503)
     app.router.add_route('*','/_mobile/terminal/{operation}',handler)

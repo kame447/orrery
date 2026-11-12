@@ -14,11 +14,13 @@ import stat
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from conversation_mail import received, sent
+from conversation_artifacts import SHOW_FILES, completed_show_files
 
 MAX_SCAN = 4 * 1024 * 1024
 MAX_TEXT = 64 * 1024
 PAGE_SIZE = 80
 CURSOR = re.compile(r"([a-f0-9]{24}):([0-9]{1,20})\Z")
+CODEX_CONTEXT_KINDS = frozenset({'agents_md.instructions', 'environments.environment_context'})
 
 
 class HistoryUnavailable(ValueError):
@@ -80,27 +82,83 @@ def assert_transcript_identity(path: str, stream) -> None:
             raise HistoryUnavailable('history_changed')
 
 
+def recorded_model(value):
+    """A small opaque model ID, never arbitrary provider metadata."""
+    if (isinstance(value, str) and 0 < len(value) <= 256
+            and not any(ord(c) < 32 or ord(c) == 127 for c in value)):
+        return value.strip() or None
+    return None
+
+
+def codex_context_text(text):
+    """Older rollouts lack source metadata: recognize complete stock wrappers."""
+    body = text.strip()
+    for tag in ('environment_context', 'user_instructions'):
+        if body.startswith('<' + tag + '>') and body.endswith('</' + tag + '>'):
+            return True
+    header, _, rest = body.partition('\n')
+    return (header == '# AGENTS.md instructions' or header.startswith('# AGENTS.md instructions for ')) and (
+        rest.lstrip().startswith('<INSTRUCTIONS>') and body.endswith('</INSTRUCTIONS>'))
+
+
+def codex_user_content(content, payload):
+    """Native per-block sources win over tag-looking human input."""
+    blocks = [dict(type='text', text=content)] if isinstance(content, str) else content
+    if not isinstance(blocks, list):
+        return content, False
+    metadata = payload.get('internal_chat_message_metadata_passthrough')
+    kinds = metadata.get('content_item_kinds') if isinstance(metadata, dict) else None
+    marked = isinstance(kinds, list) and len(kinds) == len(blocks) and all(isinstance(k, str) for k in kinds)
+    human, context = [], []
+    for index, block in enumerate(blocks):
+        injected = kinds[index] in CODEX_CONTEXT_KINDS if marked else (kinds is None and
+            isinstance(block, dict) and block.get('type') in {'text', 'input_text', 'output_text'}
+            and isinstance(block.get('text'), str) and codex_context_text(block['text']))
+        (context if injected else human).append(block)
+    # A mixed native message still has one record/cursor. Keep its human
+    # blocks without attributing the injected instructions to that speaker.
+    return (human, False) if human else (context, bool(context))
+
+
 def codex_event(raw: bytes, offset: int) -> dict | None:
     try:
         item = json.loads(raw)
-    except (ValueError, UnicodeDecodeError):
+    except (ValueError, UnicodeDecodeError, RecursionError):
         return None
-    if not isinstance(item, dict) or item.get("type") != "response_item":
+    if isinstance(item, dict) and completed_show_files(item) is not None:
+        # Code mode's wrapper is source text, not proof that a nested call ran.
+        # This completion is its own pinned reference record; expose no result
+        # or raw argument fields, just the ordinary tool row and opaque chips.
+        return dict(id=str(offset), ts=str(item.get('timestamp') or '')[:128],
+                    kind='tool', role='assistant', text='mcp__orrery_mail__show_files')
+    if (not isinstance(item, dict) or not isinstance(item.get("type"), str)
+            or item["type"] not in {"response_item", "compacted"}):
         return None
     payload = item.get("payload")
     if not isinstance(payload, dict):
         return None
+    ts = str(item.get("timestamp") or "")[:128]
+    base = {"id": str(offset), "ts": ts}
+    if item["type"] == "compacted":
+        # Newer records retain only encrypted context. Never expose it or the
+        # replacement history; older records can include a readable summary.
+        detail = payload.get("message")
+        if not isinstance(detail, str) or not detail.strip():
+            detail = "The provider did not record a readable compaction summary."
+        return dict(base, kind="system", role="system", text="Context compacted",
+                    system_detail=detail[:MAX_TEXT], truncated=len(detail)>MAX_TEXT)
     kind = payload.get("type")
     if not isinstance(kind, str):
         return None
     role = payload.get("role")
-    ts = str(item.get("timestamp") or "")[:128]
-    base = {"id": str(offset), "ts": ts}
     if kind == "message" and isinstance(role, str) and role in {"user", "assistant"}:
         # Provider reasoning is separate from user-visible commentary/final.
         if payload.get("role") == "assistant" and payload.get("phase") == "analysis":
             return None
         content = payload.get("content")
+        context = False
+        if role == 'user':
+            content, context = codex_user_content(content, payload)
         if isinstance(content, str):
             text = content
         elif isinstance(content, list):
@@ -116,13 +174,24 @@ def codex_event(raw: bytes, offset: int) -> dict | None:
             return None
         if not text.strip():
             return None
-        return received(dict(base, kind="text", role=payload["role"], text=text[:MAX_TEXT],
+        if context:
+            return dict(base, kind='system', role='system', text='System notice',
+                        system_detail=text[:MAX_TEXT], truncated=len(text)>MAX_TEXT)
+        event = received(dict(base, kind="text", role=payload["role"], text=text[:MAX_TEXT],
                     truncated=len(text) > MAX_TEXT))
+        model = recorded_model(payload.get("model"))
+        if event.get("kind") == "text" and role == "assistant" and model:
+            event["model"] = model
+        return event
     if kind in {"function_call", "custom_tool_call"}:
         # Arguments/results can contain credentials. The initial reader shows
         # only the call's name, rather than interpolating arbitrary tool input.
         name = payload.get("name")
         if isinstance(name, str):
+            # Codex rollouts also persist the MCP completion (Paginated or
+            # Legacy). Show this delivery once from that record, even when
+            # the raw native call and its completion arrive on separate polls.
+            if SHOW_FILES.fullmatch(name.split('.')[-1]):return None
             return sent(dict(base, kind="tool", role="assistant", text=name[:160]),name,
                         payload.get('input',payload.get('arguments')))
     return None
@@ -183,6 +252,19 @@ def read_codex_page(path: str, *, before: str | None = None,
     if after is not None and len(data) == MAX_SCAN and complete == 0:
         raise HistoryUnavailable("record_too_large")
     data = data[:complete]  # Never advance over an in-progress record.
+    # Metadata comes only from the already loaded window. In particular a
+    # delta without its turn_context uses the browser's roster fallback.
+    contexts = []
+    context_offset = position
+    for raw in data.splitlines(keepends=True):
+        if b'"turn_context"' in raw:
+            try:
+                item = json.loads(raw)
+            except (ValueError, UnicodeError, RecursionError):
+                item = None
+            if isinstance(item, dict) and item.get('type') == 'turn_context' and isinstance(item.get('payload'), dict):
+                contexts.append((context_offset, recorded_model(item['payload'].get('model'))))
+        context_offset += len(raw)
     entries = []
     complete_end = position
     if after is None:
@@ -211,7 +293,14 @@ def read_codex_page(path: str, *, before: str | None = None,
         oldest = int(entries[0][0]["id"]) if entries else window_start
     else:
         oldest = int(entries[0][0]["id"]) if entries else start
+    context_index = 0
+    model = None
     for event, next_offset in entries:
+        while context_index < len(contexts) and contexts[context_index][0] < int(event['id']):
+            model = contexts[context_index][1]
+            context_index += 1
+        if model and event.get('kind') == 'text' and event.get('role') == 'assistant':
+            event.setdefault('model', model)
         event['cursor_before'] = f"{file_id}:{event['id']}"
         event['cursor_after'] = f"{file_id}:{next_offset}"
     return dict(events=[event for event, _ in entries],

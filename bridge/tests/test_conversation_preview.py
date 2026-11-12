@@ -4,6 +4,7 @@ import io
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -34,6 +35,32 @@ def setup(tmp_path, item, **options):
 
 def preview(store,row,event,index=0):
     return store.read(event['references'][index]['id'],row)
+
+
+def test_os_tmp_image_alias_gets_a_reference(tmp_path):
+    """OS の /tmp 別名だけを許可し、固定した記録から画像を読める。"""
+    with tempfile.TemporaryDirectory(dir='/tmp') as folder:
+        image=Path(folder)/'shown.png'
+        Image.new('RGB',(12,9)).save(image)
+        item=dict(type='event_msg',payload=dict(type='item_completed',item=dict(
+            type='McpToolCall',server='orrery-mail',tool='show_files',status='completed',
+            arguments={'paths':[str(image)]})))
+        store,row,event=setup(tmp_path,item)
+        assert event['references'][0]['kind']=='image'
+        assert preview(store,row,event)['kind']=='image'
+
+
+def test_user_symlink_under_tmp_is_still_denied(tmp_path):
+    """OS の別名の先にある利用者の symlink は許可しない。"""
+    with tempfile.TemporaryDirectory(dir='/tmp') as folder:
+        root=Path(folder);image=root/'image.png';Image.new('RGB',(12,9)).save(image)
+        link=root/'user-link.png';link.symlink_to(image.resolve())
+        item=dict(type='event_msg',payload=dict(type='item_completed',item=dict(
+            type='McpToolCall',server='orrery-mail',tool='show_files',status='completed',
+            arguments={'paths':[str(link)]})))
+        store,row,event=setup(tmp_path,item)
+        assert not event.get('references')
+        with pytest.raises(PreviewUnavailable):store.policy(str(link),tmp_path,shown=True)
 
 
 def test_structured_paths_and_recorded_diff_never_parse_shell_or_free_text():
@@ -234,6 +261,42 @@ def test_api_accepts_only_server_ids_and_rechecks_live_binding(tmp_path,monkeypa
                 async with client.get(url+'/telemetry/conversation/preview?ref='+ref) as response:
                     data=await response.json();assert response.status==400 and 'safe fixture' not in str(data)
                 async with client.get(url+'/telemetry/conversation/preview?ref='+ref,headers={'Origin':'https://example.test'}) as response:assert response.status==403
+        finally:
+            await server.cleanup();await app[backend.HTTP_SESSION_KEY].close();await runner.cleanup()
+    asyncio.run(main())
+
+
+def test_thumbnail_uses_the_same_reference_and_binding_as_full_preview(tmp_path,monkeypatch):
+    """縮小も同じ記録の許可を使い、path や別会話への切替えで取得できない。"""
+    import asyncio
+    from aiohttp import ClientSession,web
+    import orrery_backend as backend
+    from test_conversation_history import start
+    Image.new('RGB',(800,500),'#548eae').save(tmp_path/'figure.png')
+    store,row,event=setup(tmp_path,call('mcp__orrery_mail__show_files',{'paths':['figure.png']}))
+    async def main():
+        async def agents(request):return web.json_response({'agents':[row]})
+        upstream=web.Application();upstream.router.add_get('/api/agents',agents)
+        runner,origin=await start(upstream);monkeypatch.setattr(backend,'DASHBOARD_URL',origin)
+        app=web.Application(middlewares=[backend.own_page_only,backend.json_writes_only])
+        app[backend.HTTP_SESSION_KEY]=ClientSession();app[backend.TMUX_BIN_KEY]=object()
+        app[backend.CONVERSATION_REFERENCES_KEY]=store
+        app.router.add_get('/telemetry/conversation/preview',backend.serve_conversation_preview)
+        server,url=await start(app)
+        ref=event['references'][0]['id'];query='/telemetry/conversation/preview?ref='+ref
+        try:
+            async with ClientSession() as client:
+                for suffix,size in [('&thumbnail=1',(320,200)),('',(800,500))]:
+                    async with client.get(url+query+suffix) as response:
+                        data=await response.json();assert response.status==200
+                        assert response.headers['Cache-Control']=='no-store'
+                        assert (data['width'],data['height'])==(800,500)
+                        assert Image.open(io.BytesIO(base64.b64decode(data['data']))).size==size
+                for suffix in ['&thumbnail=2','&thumbnail=1&thumbnail=1','&thumbnail=1&path=figure.png']:
+                    async with client.get(url+query+suffix) as response:assert response.status==400
+                row['native_session_id']='replaced'
+                async with client.get(url+query+'&thumbnail=1') as response:
+                    data=await response.json();assert response.status==400 and 'data' not in data
         finally:
             await server.cleanup();await app[backend.HTTP_SESSION_KEY].close();await runner.cleanup()
     asyncio.run(main())

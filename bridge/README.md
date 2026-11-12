@@ -18,16 +18,28 @@ replace text without scrolling it into history. A read-only history view
 would need to label that limited capture, or use a separate provider history
 source; it cannot supply an accurate live TUI scrollbar from these rows.
 
-**Settings → Appearance → Conversation history** adds a `History` button to
-the pane header (off by default). It opens a read-only provider conversation next to
+**Settings → Appearance → Reader** adds a page-shaped Reader icon to
+the pane header (on by default). It opens a read-only provider conversation next to
 the terminal; on narrow screens it fills the pane until closed. The scrollbar
 describes the loaded messages, not the live TUI position. `Load earlier` reads
 older records, and new output follows only while the reader is at the bottom.
+The small **↓ (Latest)** button appears over the lower-right corner only while
+reading earlier records. Its opaque background keeps it visible, and extra
+space at the end of the list keeps the last line clear. If the retention limit
+pauses updates while you read earlier messages, scrolling back to the bottom
+reloads the newest messages and resumes following, just like selecting Latest.
+Layout-driven scroll changes do not resume a paused reader.
 Turn the setting off to remove the button, close the panel and stop its reads.
-Conversation scripts/styles are loaded only after opting in. Reading keys stay
-in the reader, and opening/closing it does not resize a CLAIMED terminal: the
-terminal grid is preserved and its right portion is clipped until History is
-closed.
+Conversation scripts/styles are loaded only while the setting is enabled. Reading keys stay
+in the reader. In CLAIMED mode, opening Reader beside the terminal fits the
+terminal to the remaining width; closing Reader restores its width. Full-width
+Reader overlays the terminal. FOLLOW keeps the external terminal’s grid, so
+Reader can cover part of it.
+Claude and Codex compaction records appear as a collapsible `Context compacted`
+system row, with the readable summary when available. Encrypted context is never
+displayed. A `history_changed` response clears the old session and shows `New session`,
+then retries once after 250 ms; repeated changes use the normal polling interval.
+Other permanent read failures retain the existing Retry control.
 The single preference uses the existing shared preference mechanism; transcript
 contents and reading position are never saved as preferences.
 
@@ -86,7 +98,7 @@ opening raw transcript paths in cockpit. Data acquisition lives in
 
 ### Split terminals
 
-Each desktop split cell has its own HISTORY button and independent reader.
+Each desktop split cell has its own Reader icon and independent reader.
 Side panel, Full width and file/image preview stay inside that cell; other
 cells retain their terminal grids. Several histories can remain open at once.
 Interacting with a reader selects its cell through the existing pane focus
@@ -113,7 +125,7 @@ search only that pane's current xterm buffer. Soft-wrapped rows are joined and
 whitespace is normalized. A unique literal match scrolls to and selects the
 physical rows, without input, resize, claim or tmux copy-mode. Wide readers
 return to side mode; narrow readers close only their own history. Bottom restores
-normal terminal following. No-match and multiple-match notices leave History
+normal terminal following. No-match and multiple-match notices leave Reader
 open. Native text selection, double click and file/diff controls keep their own
 actions. The search scans at most 6500 rows / 2 MiB; removed rows and old
 alternate-screen frames are unavailable. Markdown rendering and truncation can
@@ -144,12 +156,24 @@ setup). It does not offer rebinding or infer a transcript path.
 
 ### Recorded edits and file preview
 
-Claude `SendUserFile` creates chips from its explicit `files: string[]`.
-Caption, status and result prose grant no paths. These chips use the same
-workspace/image roots, canonical-path, secret-file, byte and pixel limits as
-other recorded references; delivery does not expand the readable roots.
+Claude `SendUserFile` creates chips from its explicit `files: string[]`;
+ORRERY Mail's `show_files` uses `paths: string[]` across all four harnesses.
+Raster images explicitly named by these calls can be previewed outside the
+working folder and configured roots. Other tools' references still require the
+existing workspace/image roots; text files always require a workspace root.
+Caption, status and result prose grant no paths. Every preview rechecks the
+original bound record and preserves canonical-path, no-symlink, file-type,
+byte and pixel limits; images are reencoded as PNG before delivery.
+Codex supplies a completed MCP record for ORRERY Mail's `show_files` call,
+both natively and through code mode: `item_completed` / `McpToolCall` in
+Paginated history, or a successful `mcp_tool_call_end` in Legacy history.
+Its recorded arguments grant the image reference on that tool row; the raw
+native call is omitted to avoid a duplicate row and chip. Codex histories
+without either completion record no longer show `show_files` chips.
+A call merely written inside a `functions.exec` wrapper keeps the existing
+root restrictions, including dead branches, function definitions and comments.
 
-**Full width** expands History within the pane. Structured `apply_patch`,
+The header’s **⤢** icon expands Reader within the pane; press it again to restore the side panel. Structured `apply_patch`,
 `view_image`, `read_file`, `write_file`, `Read` and `Edit` arguments produce file
 chips when permitted. Codex's static `functions.exec` literal wrappers are also
 supported, without evaluating JavaScript. Computed calls, shell-command paths,
@@ -160,13 +184,13 @@ references; generic result bodies never grant file access.
 Call diffs show the **recorded edit request**, with **outcome unconfirmed**.
 dsh filesystem-result diffs are labeled **Recorded file tool result · contextual
 hunk**. Neither is recomputed from disk or treated as proof of the current file. Expand the diff
-to see colored added/removed lines. Selecting a file chip expands History and
+to see colored added/removed lines. Selecting a file chip expands Reader and
 opens a split preview; **× Preview** returns to the full-width reader. On a
 phone the preview takes the reader area until closed. The preview is labeled
 **Current file · may differ from the recorded edit**. Reveal is an explicit
 button using the existing file-manager adapter.
 
-Full-width History reserves space for the original prompt composer below it;
+Full-width Reader reserves space for the original prompt composer below it;
 on phones it places the target above the textarea and STOP/SEND controls.
 This is the same DOM element, draft, target, IME handling, send guard and
 WebSocket input route as the terminal composer. Reading/preview keys do not
@@ -179,8 +203,8 @@ It is not provider acknowledgement.
 With a provider that records whole seconds, a record written in the same second as the send may show as not matched. Repeated prompts match one record each;
 old loaded records and older pages cannot consume a new receipt. Whitespace is
 normalized; a sufficiently long truncated prefix can match an unambiguous send. Closing and
-reopening History retains receipts; changing binding, closing the pane or
-turning History off discards them. If a new user record cannot be associated confidently, the receipt says
+reopening Reader retains receipts; changing binding, closing the pane or
+turning Reader off discards them. If a new user record cannot be associated confidently, the receipt says
 **Record not matched** rather than claiming the record is still absent. The receipt displays at most 1,000 characters; exact
 matching is available for prompts up to the reader's 64 KiB text limit.
 
@@ -192,8 +216,8 @@ Terminal jump still searches the original complete provider message. Tables
 have a 64-column / 500-row projection limit; larger shapes remain text.
 
 The header shows the status (ACTIVE/LIVE/offline) as a dot and noninteractive
-text beside the pane name, with HISTORY (when enabled) and WINDOW on the right.
-In a separate pane window, WINDOW returns it to the
+text beside the pane name, with Reader (when enabled), full-width (while open) and window icons on the right.
+In a separate pane window, the return icon puts it back in the
 cockpit. Terminal-size claim/follow and opening in the external terminal moved
 to **Settings → Terminal → Selected pane actions**; the selected session/pane
 is shown there, and the same handlers apply. Their defaults did not change:
@@ -214,6 +238,20 @@ Telemetry API extension, not local transcript discovery.
 References expire after 15 minutes, are capped at 4096 and are revalidated
 against the live binding, pinned transcript inode and original record digest
 for every read. Browser input cannot register a reference or broaden a root.
+
+会話内では、`show_files` の画像と、人の入力として記録された画像を小さく表示し、
+クリックで既存の拡大 preview を開きます。`?ref=<id>&thumbnail=1` は同じ許可を
+確認してから 320×200 以内の PNG を返します。元の chip は tool の中に残ります。
+一覧の画像は画面付近だけを取得し、Reader ごとに同時2件・Blob8件まで保持します。
+
+入力画像は Claude の base64 image block、Codex の input_image、dsh の
+content-addressed attachment、Hermes の構造化 image_url を、固定した会話記録から
+参照します。外部 URL は取得せず、本文中の任意の path も自動では開きません。
+bridge が保存した clipboard / `.orrery-input-images` の画像だけは、保存成功時の
+プロセス内の path・ファイル情報と本文を照合します。bridge 再起動前の保存は
+自動表示しません。既存の record 上限（構造化抽出1 MiB、Hermes content 65537以内）
+を超える入力画像は表示しません。native の `^V` は変更せず、paste 直後の通知は
+貼り付け操作を送ったことだけを示し、会話に記録されて初めて timeline に画像が出ます。
 
 The default preview root is the bound native workspace: Codex's
 `session_meta.payload.cwd`, Claude's first native message `cwd`, dsh's session
@@ -238,12 +276,13 @@ limit. Structured extraction is capped at 1 MiB per record, 24 references and
 no name-based hiding or content redaction: the owner decides. Nothing is
 indexed or stored to disk by these modules.
 
-The reader retains at most 400 events / 2 MiB of serialized event data (fresh:
+The reader retains at most 800 events / 2 MiB of serialized event data (fresh:
 at most 200). Legacy releases older events while following the bottom; Load
 earlier reads them again with per-event cursors. At the limit while reading,
-updates pause without moving the reading position; Latest reloads the newest
-window and resumes. Loading older pages may release newer ones and pause updates
-until Latest. This is a bounded reader, not an archival export.
+updates pause without moving the reading position; scrolling back to the bottom
+or selecting Latest reloads the newest window and resumes. Loading older pages may release newer ones and pause updates
+until you scroll back to the bottom or select Latest. This is a bounded reader,
+not an archival export.
 
 Each control connection runs through `control_client_guard.py`. The guard owns
 one `tmux -CC attach` child and watches a private pipe whose writer belongs only
@@ -421,9 +460,9 @@ The fixed ORRERY aliases include the bound `agentstack` proxy's send tool;
 arbitrary services named `send_message` remain ordinary tools.
 
 Split panes have their own title bars: the name and status identify the pane,
-HISTORY reads that pane, and WINDOW moves that session into its own window.
+the Reader icon reads that pane, and the window icon moves that session into its own window.
 The shared upper header is hidden while two or more splits are visible. A
 single pane retains the existing header. Pane names still support drag reordering
 and closing; their keyboard focus action uses Enter or Space. Title bars stay 40px high at every width. Names and status ellipsize; narrow
-panes use HIST/WIN labels and the smallest panes use labelled icons.
-Turning conversation history off removes HISTORY while keeping WINDOW available.
+panes keep the same icons with accessible labels.
+Turning Reader off removes its controls while keeping the window icon available.

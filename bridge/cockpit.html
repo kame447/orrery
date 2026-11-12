@@ -301,6 +301,30 @@
   .agent:hover .name-copy,.name-copy:focus-visible{opacity:1}
   .name-copy:hover,.name-copy:focus-visible{background:rgb(var(--theme-ink-rgb) / .06);color:var(--ink);outline:none}
   .roster.select-mode .name-copy{display:none}
+  .roster-edit-toggle{align-self:center;flex:none;width:18px;height:18px;display:grid;place-items:center;padding:0;
+    border:0;border-radius:4px;background:transparent;color:var(--ink-dim);opacity:0;cursor:pointer}
+  .roster-edit-toggle svg{width:12px;height:12px;fill:none;stroke:currentColor;stroke-width:1.3;stroke-linecap:round;stroke-linejoin:round}
+  .agent:hover .roster-edit-toggle,.roster-edit-toggle:focus-visible{opacity:1}
+  .roster-edit-toggle:focus-visible{outline:1px solid var(--amber);outline-offset:2px}
+  .roster.select-mode .roster-edit-toggle{display:none}
+  .roster-edit{flex:none;min-width:0;margin-top:-5px;padding:10px;border:1px solid var(--hair);border-radius:7px;
+    background:var(--panel-2);color:var(--ink);font-family:var(--mono)}
+  .roster-edit label{display:flex;flex-direction:column;gap:5px;margin-bottom:9px;color:var(--ink-dim);font-size:10px}
+  .roster-edit label[hidden],.roster-edit[hidden]{display:none}
+  .roster-edit input,.roster-edit textarea{box-sizing:border-box;min-width:0;width:100%;padding:6px 7px;
+    border:1px solid var(--hair);border-radius:4px;background:var(--panel);color:var(--ink);font:11px/1.5 var(--mono)}
+  .roster-edit textarea{resize:vertical}
+  .roster-edit input:focus,.roster-edit textarea:focus{outline:1px solid var(--amber)}
+  .roster-edit-hint{color:var(--ink-dim);font-size:9px;line-height:1.6;overflow-wrap:anywhere}
+  .roster-edit-actions{display:flex;gap:7px;margin-top:9px}
+  .roster-edit button{padding:5px 9px;border:1px solid var(--hair);border-radius:4px;background:transparent;
+    color:var(--ink-dim);font:10px var(--mono);cursor:pointer}
+  .roster-edit button:focus-visible{outline:1px solid var(--amber);outline-offset:2px}
+  .roster-edit .roster-edit-save{color:var(--amber);border-color:var(--amber)}
+  .roster-edit :disabled{opacity:.6;cursor:wait}
+  .roster-edit-status{color:var(--ink-dim);font-size:10px;line-height:1.5;overflow-wrap:anywhere}
+  .roster-edit-status:not(:empty){margin-top:8px}
+  @media(hover:none){.roster-edit-toggle{opacity:1}}
   .bulk-check{
     position:absolute;right:10px;top:9px;width:17px;height:17px;border:1px solid var(--hair);
     border-radius:4px;background:rgba(11,13,17,.72);opacity:0;pointer-events:none;
@@ -578,13 +602,23 @@
   .scr-head{display:flex;align-items:center;gap:8px;height:40px;padding:5px 12px;border-bottom:1px solid var(--hair-2);position:relative;z-index:4;
     background:rgba(10,12,16,.7)}
   .scr-head .name{font-family:var(--serif);font-size:14px;color:var(--ink)}
+  .pane-heading{display:flex;align-items:center;gap:6px;flex:1;min-width:0;overflow:hidden}
+  .pane-heading-copy{display:flex;align-items:baseline;gap:6px;flex:1;min-width:16px;overflow:hidden}
+  .pane-heading-copy .name,.split-pane-headers .split-cell-label .pane-heading-copy .scl-name{flex:0 0 auto;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pane-model{flex:0 1 auto;min-width:0;max-width:24ch;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-dim);font:12px var(--mono);letter-spacing:normal}
+  .pane-model::before{content:'·';margin-right:6px;color:var(--ink-faint)}
+  .pane-provider{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:0 0 16px;width:16px;height:18px;color:var(--ink);opacity:.9}
+  .pane-provider .provider-logo{width:16px;height:16px;object-fit:contain;border:0;border-radius:0;background:none}
+  .pane-provider svg{position:absolute;inset:1px 0;width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.5}
+  .pane-provider.is-working{animation:pane-provider-breathe 3.2s ease-in-out infinite}
+  @keyframes pane-provider-breathe{0%,100%{opacity:1}50%{opacity:.45}}
+  @media(prefers-reduced-motion:reduce){.pane-provider.is-working{animation:none}}
   .scr-head .path{flex:1;min-width:0;color:var(--ink-faint);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .scr-head .badge{
     display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;margin-right:auto;
     border:0;padding:0;background:transparent;color:var(--ink-faint);
     font:9.5px/1.2 var(--mono);letter-spacing:.06em;text-transform:uppercase;cursor:default;
   }
-  .scr-head .badge::before{content:"";width:5px;height:5px;flex:0 0 auto;border-radius:50%;background:currentColor}
   .scr-head .badge:empty{display:none}
   .scr-head .badge.live{color:var(--amber)}
   .cockpit-control{
@@ -687,22 +721,18 @@
   .split-pane-headers .split-cell-label{position:static;flex:1;min-width:0;max-width:none;
     padding:0;border:0;border-radius:0;background:transparent;backdrop-filter:none;
     -webkit-backdrop-filter:none;box-shadow:none;gap:6px}
-  .split-pane-headers .split-cell-label .scl-name{min-width:0;flex:0 1 auto;cursor:pointer}
+  .split-pane-headers .split-cell-label .scl-name{min-width:0;flex:0 1 auto;cursor:pointer;font:14px var(--serif);letter-spacing:normal}
   .split-pane-headers .split-cell-label .scl-name:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
-  .split-pane-headers .split-cell-label .scl-close{position:static;flex:0 0 22px;width:22px;height:22px;
-    opacity:.6;pointer-events:auto;transform:none;font-size:14px}
   .split-pane-headers .split-cell-label .scl-role{display:none}
   .split-cell-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto;margin-left:auto}
-  .split-cell-status{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-faint);font:9px var(--mono);text-transform:uppercase;cursor:default}
-  .split-cell-status::before{content:'●';font-size:7px;margin-right:5px}
+  .split-cell-status{display:inline-flex;align-items:center;gap:5px;flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-faint);font:9px var(--mono);text-transform:uppercase;cursor:default}
+  .split-cell-status:empty{display:none}
   .split-cell-status.live{color:var(--amber)}
   .split-cell.focused > .split-cell-head{box-shadow:inset 3px 0 var(--amber)}
   .pane-action-short,.pane-action-icon{display:none}
   @container split-pane (max-width:320px){
     .split-pane-headers .split-cell-head{gap:4px;padding:5px 6px}
     .split-pane-headers .split-cell-label{gap:4px}
-    .split-pane-headers .split-cell-label img{display:none}
-    .split-pane-headers .split-cell-label .scl-close{flex-basis:18px;width:18px}
     .split-cell-actions{gap:4px}
     .split-cell-actions .cockpit-control{font-size:9px;padding:5px}
     .split-cell-actions .pane-action-wide{display:none}
@@ -713,6 +743,9 @@
     .split-cell-actions .pane-action-icon{display:inline;font-size:14px}
     .split-cell-actions .cockpit-control{width:28px;padding:4px}
   }
+  .cockpit-control.pane-icon{width:28px;min-width:28px;padding:4px;color:var(--ink)}
+  .cockpit-control.pane-icon[hidden]{display:none}
+  .pane-icon svg{display:block;width:18px;height:18px;flex:none}
   .split-cell.bottom-span{grid-column:1/-1}
   .split-cell.main-span{grid-row:1/-1}
   /* identity chip: floats over live terminal text, so it carries its own
@@ -735,23 +768,11 @@
   .split-cell-label .scl-role{max-width:96px;overflow:hidden;text-overflow:ellipsis;
     padding-left:6px;border-left:1px solid var(--hair);color:var(--ink-dim);font-size:8px;letter-spacing:.05em}
   .split-cell-label .scl-role[hidden]{display:none}
-  .split-cell-label img{width:20px;height:20px;border-radius:50%;flex:0 0 auto;
+  .split-cell-label > img{width:20px;height:20px;border-radius:50%;flex:0 0 auto;
     border:1px solid var(--hair);background:#0a0a0c}
-  .scl-close{
-    position:absolute;right:-6px;top:-7px;display:grid;place-items:center;width:17px;height:17px;
-    padding:0;border:1px solid var(--hair);border-radius:50%;background:rgba(9,11,15,.74);
-    color:var(--ink-faint);font:11px/1 var(--mono);opacity:0;pointer-events:none;cursor:pointer;
-    transform:scale(.72);
-    transition:opacity .14s,transform .14s,border-color .14s,color .14s,background .14s;
-  }
-  .split-cell-label:hover .scl-close,.scl-close:focus-visible{
-    opacity:1;pointer-events:auto;transform:scale(1)}
-  .scl-close:hover,.scl-close:focus-visible{
-    outline:none;border-color:var(--amber);color:var(--amber);background:var(--amber-glow)}
-  .scl-close[hidden]{display:none}
   .split-cell.focused .split-cell-label{
     color:var(--amber);border-color:rgb(var(--theme-accent-rgb) / .35)}
-  .split-cell.focused .split-cell-label img{border-color:rgb(var(--theme-accent-rgb) / .6)}
+  .split-cell.focused .split-cell-label > img{border-color:rgb(var(--theme-accent-rgb) / .6)}
   .split-cell.drop-target{
     border-color:var(--amber);box-shadow:inset 0 0 0 1px rgb(var(--theme-accent-rgb) / .28),0 0 16px rgb(var(--theme-accent-rgb) / .12)}
   .split-drag-ghost{
@@ -1282,15 +1303,15 @@
       <div class="screen">
         <div class="glassglow"></div>
         <div class="scr-head">
-          <span class="name" id="scrName">—</span>
+          <span class="pane-heading"><span class="pane-provider" role="img" aria-label="Agent · offline" title="Agent · offline"><svg viewBox="0 0 100 100" aria-hidden="true"><polygon points="50,4 90,27 90,73 50,96 10,73 10,27"/></svg></span><span class="pane-heading-copy"><span class="name" id="scrName">—</span><span class="pane-model" hidden></span></span></span>
           <span class="badge off" id="scrBadge" role="status" aria-live="polite" aria-atomic="true">offline</span>
           <span class="path" id="scrPath"></span>
-          <button class="cockpit-control conversation-toggle" id="conversationToggle" type="button" hidden
-                  aria-expanded="false" aria-controls="conversationPanel">History</button>
-          <button class="cockpit-control pane-popout" id="panePopout" type="button" hidden
-                  title="Open this pane in its own window (or drag its tab out of the cockpit)">WINDOW</button>
-          <button class="cockpit-control pane-return" id="paneReturn" type="button" hidden
-                  title="Close this window and put the pane back in the cockpit" aria-label="Return this window to the cockpit">WINDOW</button>
+          <button class="cockpit-control pane-icon conversation-toggle" id="conversationToggle" type="button" hidden
+                  aria-expanded="false" aria-pressed="false" aria-controls="conversationPanel" title="Reader" aria-label="Reader"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8 7h8M8 11h8M8 15h6"/></svg></button>
+          <button class="cockpit-control pane-icon pane-popout" id="panePopout" type="button" hidden
+                  title="Open this pane in its own window (or drag its tab out of the cockpit)" aria-label="Open this pane in its own window"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7M21 3 11 13M10 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></svg></button>
+          <button class="cockpit-control pane-icon pane-return" id="paneReturn" type="button" hidden
+                  title="Close this window and put the pane back in the cockpit" aria-label="Return this window to the cockpit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7M21 3 10 14M10 8v6h6"/></svg></button>
         </div>
         <div class="termstage" id="termstage">
           <div class="stage-empty" id="stageEmpty">waiting for ORRERY backend…<br>start <b>orrery_backend.py</b> on :8791</div>
@@ -1344,8 +1365,8 @@
       <div class="settings-row">
         <label class="settings-toggle-row" for="conversationEnabled">
           <span class="settings-toggle-copy">
-            <span class="settings-row-name">Conversation history</span>
-            <span class="settings-help">Adds a read-only History panel. Claude, dsh and Hermes require Telemetry API 35 or later. On by default.</span>
+            <span class="settings-row-name">Reader</span>
+            <span class="settings-help">Adds a read-only Reader panel. Claude, dsh and Hermes require Telemetry API 35 or later. On by default.</span>
           </span>
           <span class="settings-switch"><input id="conversationEnabled" type="checkbox"></span>
         </label>
@@ -1584,6 +1605,7 @@
 <script src="vendor/addon-fit-0.10.0/addon-fit.js"></script>
 <script src="vendor/addon-web-links-0.11.0/addon-web-links.js"></script>
 <script src="roster_descriptor.js"></script>
+<script src="roster_edit.js"></script>
 <script src="demo_mask.js"></script>
 <script src="demo_mode.js"></script>
 <script id="agentstack-theme-axis-inventory" type="application/json">
@@ -1796,6 +1818,66 @@
             "property": "color",
             "selector": ".name-copy:hover,.name-copy:focus-visible",
             "value": "var(--ink)"
+          },
+          {
+            "property": "color",
+            "selector": ".roster-edit-toggle",
+            "value": "var(--ink-dim)"
+          },
+          {
+            "property": "border",
+            "selector": ".roster-edit",
+            "value": "1px solid var(--hair)"
+          },
+          {
+            "property": "background",
+            "selector": ".roster-edit",
+            "value": "var(--panel-2)"
+          },
+          {
+            "property": "color",
+            "selector": ".roster-edit",
+            "value": "var(--ink)"
+          },
+          {
+            "property": "color",
+            "selector": ".roster-edit label",
+            "value": "var(--ink-dim)"
+          },
+          {
+            "property": "border",
+            "selector": ".roster-edit input,.roster-edit textarea",
+            "value": "1px solid var(--hair)"
+          },
+          {
+            "property": "background",
+            "selector": ".roster-edit input,.roster-edit textarea",
+            "value": "var(--panel)"
+          },
+          {
+            "property": "color",
+            "selector": ".roster-edit input,.roster-edit textarea",
+            "value": "var(--ink)"
+          },
+          {
+            "property": "color",
+            "selector": ".roster-edit-hint",
+            "value": "var(--ink-dim)"
+          },
+          {
+            "property": "border",
+            "selector": ".roster-edit button",
+            "value": "1px solid var(--hair)"
+          },
+          {
+            "property": "color",
+            "selector": ".roster-edit button",
+            "value": "var(--ink-dim)"
+          },
+          {
+            "property": "color",
+            "selector": ".roster-edit-status",
+            "value": "var(--ink-dim)"
           },
           {
             "property": "border",
@@ -2179,6 +2261,21 @@
           },
           {
             "property": "color",
+            "selector": ".pane-model",
+            "value": "var(--ink-dim)"
+          },
+          {
+            "property": "color",
+            "selector": ".pane-model::before",
+            "value": "var(--ink-faint)"
+          },
+          {
+            "property": "color",
+            "selector": ".pane-provider",
+            "value": "var(--ink)"
+          },
+          {
+            "property": "color",
             "selector": ".scr-head .path",
             "value": "var(--ink-faint)"
           },
@@ -2344,6 +2441,11 @@
           },
           {
             "property": "color",
+            "selector": ".cockpit-control.pane-icon",
+            "value": "var(--ink)"
+          },
+          {
+            "property": "color",
             "selector": ".split-cell-label",
             "value": "var(--ink)"
           },
@@ -2359,18 +2461,8 @@
           },
           {
             "property": "border",
-            "selector": ".split-cell-label img",
+            "selector": ".split-cell-label > img",
             "value": "1px solid var(--hair)"
-          },
-          {
-            "property": "border",
-            "selector": ".scl-close",
-            "value": "1px solid var(--hair)"
-          },
-          {
-            "property": "color",
-            "selector": ".scl-close",
-            "value": "var(--ink-faint)"
           },
           {
             "property": "color",
@@ -3188,6 +3280,11 @@
             "value": "var(--ink-dim)"
           },
           {
+            "property": "box-shadow",
+            "selector": ".msg .conversation-avatar .face",
+            "value": "0 0 0 1px var(--hair)"
+          },
+          {
             "property": "border",
             "selector": ".mailview-host .imp",
             "value": "1px solid var(--hair)"
@@ -3496,6 +3593,31 @@
           },
           {
             "property": "color",
+            "selector": ".roster-edit-toggle",
+            "value": "var(--ink-dim)"
+          },
+          {
+            "property": "color",
+            "selector": ".roster-edit label",
+            "value": "var(--ink-dim)"
+          },
+          {
+            "property": "color",
+            "selector": ".roster-edit-hint",
+            "value": "var(--ink-dim)"
+          },
+          {
+            "property": "color",
+            "selector": ".roster-edit button",
+            "value": "var(--ink-dim)"
+          },
+          {
+            "property": "color",
+            "selector": ".roster-edit-status",
+            "value": "var(--ink-dim)"
+          },
+          {
+            "property": "color",
             "selector": ".agent.offline-hint::after",
             "value": "var(--ink-dim)"
           },
@@ -3656,6 +3778,16 @@
           },
           {
             "property": "color",
+            "selector": ".pane-model",
+            "value": "var(--ink-dim)"
+          },
+          {
+            "property": "color",
+            "selector": ".pane-model::before",
+            "value": "var(--ink-faint)"
+          },
+          {
+            "property": "color",
             "selector": ".scr-head .path",
             "value": "var(--ink-faint)"
           },
@@ -3708,11 +3840,6 @@
             "property": "color",
             "selector": ".split-cell-label .scl-role",
             "value": "var(--ink-dim)"
-          },
-          {
-            "property": "color",
-            "selector": ".scl-close",
-            "value": "var(--ink-faint)"
           },
           {
             "property": "color",
@@ -4226,7 +4353,7 @@
         "unit": "effect-component"
       },
       "source": {
-        "digest": "37547ded6be1c92c5abf017d46a7d19c166a5344d1b443aae01362d1711e7cf2",
+        "digest": "5d50adc01bb98e3136d6d7e0e4170dbbcdcd73611913f6db4eda6642813796f4",
         "records": [
           ":root\u0000--amber-glow",
           ".miniorrery.telemetry-network\u0000background",
@@ -4242,6 +4369,7 @@
           ".agent.sel::before\u0000box-shadow",
           ".roster.select-mode .agent.bulk-selected\u0000box-shadow",
           ".medal .face\u0000box-shadow",
+          ".msg .conversation-avatar .face\u0000box-shadow",
           ".medal .face::after\u0000background",
           ".agent-detail\u0000box-shadow",
           ".term\u0000background",
@@ -4289,7 +4417,7 @@
         "unit": "element"
       },
       "source": {
-        "digest": "c07db2aba4f019f2c7a7ad03c9d0bcbd6e5cf802619fd201e6b7cdb982057ccd",
+        "digest": "b2e39210f4d259378a637873825f14b1234d3a2e8ae6f46b6dcec9b609d83db0",
         "records": [
           ".topstat\u0000font-size",
           ".need-chip\u0000font-size",
@@ -4300,6 +4428,9 @@
           ".roster-select\u0000font-size",
           ".roster-filter input\u0000font-size",
           ".roster-filter-status\u0000font-size",
+          ".roster-edit label\u0000font-size",
+          ".roster-edit-hint\u0000font-size",
+          ".roster-edit-status\u0000font-size",
           ".agent.offline-hint::after\u0000font-size",
           ".bulk-count\u0000font-size",
           ".bulk-exit\u0000font-size",
@@ -4338,7 +4469,6 @@
           ".slashmenu .sm-desc\u0000font-size",
           ".sendguard .sg-msg\u0000font-size",
           ".network-note\u0000font-size",
-          ".split-cell-status::before\u0000font-size",
           ".split-cell-actions .cockpit-control\u0000font-size",
           ".split-cell-label\u0000font-size",
           ".split-cell-label .scl-role\u0000font-size",
@@ -4412,6 +4542,7 @@
           ".mailchip\u0000font-size",
           ".msg .arrow\u0000font-size",
           ".msg .to\u0000font-size",
+          ".msg .conversation-avatar .face\u0000font-size",
           ".mailview-host .imp\u0000font-size",
           ".msg .body\u0000font-size",
           ".msg .time\u0000font-size",
@@ -4440,7 +4571,7 @@
         "unit": "element"
       },
       "source": {
-        "digest": "ce24501fa76904ef659f5ac9a335c99cede5855a11d1e1d5f0c88181d0c430e0",
+        "digest": "a3812f73187e7b1c4d32678680d1dd1f5ebc2a0b951bb9d23d3407109e61ccc3",
         "records": [
           ".colhead\u0000letter-spacing",
           ".roster-head .colhead-title\u0000letter-spacing",
@@ -4489,9 +4620,9 @@
       }
     }
   },
-  "inventory_digest": "dfb6d6d2b881f679ca8498f812c8d93363ff0ad14dbbe86512971e2600abd06d",
+  "inventory_digest": "06bf63872e7f0482bf264e6cb10c17394954acaa456aaddde527451ae7f11752",
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "eada949235e7c9035d98b247c9af71613f9c3b2bf6a6bf598cc110f785be1c43",
+  "source_digest": "d710bd5b90ccce00fb6462cba0fbe1f6f97df0b897959c6aa4d8b0a9a14cb5fd",
   "surface": "cockpit",
   "version": 1
 }
@@ -5310,6 +5441,7 @@ const THEME_GLOW_EFFECT_MANIFEST=Object.freeze([
   ['.agent.sel::before','box-shadow',['state','emissive'],'scale','html[data-theme-axis="glow"] .agent.sel::before'],
   ['.roster.select-mode .agent.bulk-selected','box-shadow',['state','emissive'],'scale','html[data-theme-axis="glow"] .roster.select-mode .agent.bulk-selected'],
   ['.medal .face','box-shadow',['state'],'preserve'],
+  ['.msg .conversation-avatar .face','box-shadow',['state'],'preserve'],
   ['.medal .face::after','background',['elevation'],'preserve'],
   ['.agent-detail','box-shadow',['elevation'],'preserve'],
   ['.term','background',['elevation'],'preserve'],
@@ -6342,6 +6474,7 @@ applyThemeAxisState({broadcast:false});
 
 function setLink(state,label){linkDot.className='dot '+state;linkText.textContent=label;
   const stat=document.getElementById('linkStat');if(stat)stat.hidden=(state==='open');}
+let readerApproval=null;
 function send(payload){
   if(!socket||socket.readyState!==WebSocket.OPEN)return false;
   socket.send(JSON.stringify(payload));return true;
@@ -6488,8 +6621,10 @@ function focusAttachedSessionNumber(number){
 }
 
 function resetHead(){
-  scrName.textContent='—';scrPath.textContent='';
+  scrName.textContent='—';scrName.title='';scrPath.textContent='';
   scrBadge.textContent='offline';scrBadge.className='badge off';
+  scrBadge.title=scrBadge.ariaLabel='offline';
+  paintPaneHeading(scrName.closest('.pane-heading'),null,'offline');
   paintClaimToggle();paintGhosttyAction();
 }
 function refreshHeaderStats(){
@@ -6821,6 +6956,16 @@ function queueStageFit(focusPaneId=null){
     if(focused&&activeId===focusPaneId)focusTerminalPreservingScroll(focused);
   });
 }
+// Reader visibility and relocation change host geometry without a window resize.
+// Observe the host, not xterm's fitted contents. Share the window-resize debounce
+// so rapid Reader toggles send only the settled grid, without moving focus.
+const terminalHostResizeObserver=new ResizeObserver(entries=>{
+  if(entries.some(({target,contentRect})=>{
+    const pane=panes.get(target.dataset.paneId);
+    return pane&&target.classList.contains('on')&&contentRect.width>0&&contentRect.height>0&&
+      sessionClaimed(claimedSessions,pane.session);
+  }))scheduleFit();
+});
 /* Attach snapshots are one big write that xterm parses across several frames.
    A scroll position read during that write describes a HALF-WRITTEN buffer;
    restoring it pins the viewport there, xterm reads that as "the reader
@@ -7047,7 +7192,7 @@ function bottomJumpShortcutBlocked(event){
   return targets.some(target=>{
     if(!target.closest||target.closest('.xterm'))return false;
     return Boolean(target.closest(
-      '.promptbar,.overlay,.settings-popover,.conversation-panel,.split-cell-head,[contenteditable="true"],input,textarea,select',
+      '.promptbar,.overlay,.settings-popover,.reader-approval,.conversation-panel,.conversation-notice-menu,.split-cell-head,.scr-head,[contenteditable="true"],input,textarea,select',
     ));
   });
 }
@@ -7056,7 +7201,7 @@ function editableElementOwnsFocus(){
   if(!focused||focused===document.body||!focused.matches)return false;
   // xterm owns a hidden textarea. It is terminal input, not a browser form.
   if(focused.closest('.xterm'))return false;
-  if(focused.closest('.conversation-panel,.settings-popover,.split-cell-head'))return true;
+  if(focused.closest('.reader-approval,.conversation-panel,.conversation-notice-menu,.settings-popover,.split-cell-head,.scr-head'))return true;
   return focused.matches('input,textarea,select,[contenteditable="true"]')||
     focused.isContentEditable;
 }
@@ -7183,9 +7328,6 @@ function ensureSplitCell(session){
   cell=document.createElement('div');cell.className='split-cell';cell.dataset.session=session;
   const head=document.createElement('div');head.className='split-cell-head';head.setAttribute('role','group');head.setAttribute('aria-label','Pane '+session);
   const label=document.createElement('span');label.className='split-cell-label';
-  const lava=document.createElement('img');lava.alt='';
-  lava.src='/telemetry/portrait?v=3&name='+encodeURIComponent(session);
-  lava.onerror=()=>lava.remove();
   const lname=document.createElement('span');lname.className='scl-name';lname.textContent=session;
   lname.tabIndex=0;lname.setAttribute('role','button');lname.setAttribute('aria-label','Focus pane '+session);lname.title=session;
   lname.addEventListener('keydown',event=>{if(!['Enter',' '].includes(event.key))return;event.preventDefault();event.stopPropagation();focusSplitSession(session);});
@@ -7193,19 +7335,23 @@ function ensureSplitCell(session){
   const agent=currentAgents.find(item=>item&&item.name===session);
   const role=String(agent&&agent.annot&&agent.annot.role||'').trim();
   lrole.hidden=!role;lrole.textContent=role;
-  const close=document.createElement('button');close.className='scl-close';close.type='button';
-  close.textContent='×';close.title=`close ${session} pane`;
+  const close=document.createElement('button');close.className='cockpit-control pane-icon scl-close';close.type='button';
+  close.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg>';close.title=`close ${session} pane`;
   close.setAttribute('aria-label',`Close ${session} pane`);
-  label.append(lava,lname,lrole,close);
+  const heading=document.createElement('span');heading.className='pane-heading';
+  const logo=document.createElement('span');logo.className='pane-provider';logo.setAttribute('role','img');
+  const copy=document.createElement('span');copy.className='pane-heading-copy';
+  const model=document.createElement('span');model.className='pane-model';model.hidden=true;
+  copy.append(lname,model);heading.append(logo,copy);label.append(heading,lrole);
   const empty=document.createElement('span');empty.className='split-cell-empty';empty.textContent='connecting…';
   const state=document.createElement('span');state.className='split-cell-status';state.setAttribute('role','status');
   const actions=document.createElement('div');actions.className='split-cell-actions';
-  const windowButton=document.createElement('button');windowButton.type='button';windowButton.className='cockpit-control split-pane-window';windowButton.innerHTML='<span class="pane-action-wide" aria-hidden="true">WINDOW</span><span class="pane-action-short" aria-hidden="true">WIN</span><span class="pane-action-icon" aria-hidden="true">↗</span>';
+  const windowButton=document.createElement('button');windowButton.type='button';windowButton.className='cockpit-control pane-icon split-pane-window';windowButton.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3h7v7M21 3 11 13M10 5H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></svg>';
   windowButton.title='Move '+session+' into its own window';windowButton.setAttribute('aria-label','Open '+session+' in its own window');
   windowButton.addEventListener('click',()=>popPaneSessionToWindow(session));
   for(const type of ['pointerdown','mousedown'])head.addEventListener(type,event=>event.stopPropagation());
   head.addEventListener('keydown',event=>event.stopPropagation());
-  label.insertBefore(state,lrole);actions.append(windowButton);head.append(label,actions);cell.append(head,empty);
+  label.insertBefore(state,lrole);actions.append(windowButton,close);head.append(label,actions);cell.append(head,empty);
   label.addEventListener('pointerdown',event=>beginSplitLabelPointer(event,session,label));
   label.addEventListener('pointermove',updateSplitLabelDrag);
   label.addEventListener('pointerup',event=>finishSplitLabelDrag(event));
@@ -7225,7 +7371,7 @@ function ensureSplitCell(session){
     }
     focusSplitSession(session,null,{forceFocus:true});
   });
-  cell._empty=empty;cell._close=close;cell._role=lrole;cell._actions=actions;cell._status=state;cell._window=windowButton;
+  cell._empty=empty;cell._close=close;cell._role=lrole;cell._actions=actions;cell._status=state;cell._window=windowButton;cell._heading=heading;
   splitCells.set(session,cell);return cell;
 }
 let fullTourSplitPending=false;
@@ -7276,9 +7422,12 @@ function renderStage({fit=true}={}){
       });
       const p=panes.get(paneId);
       cell._window.disabled=!p;
-      cell._status.textContent=p?(p.meta.active?'active':'live'):'connecting';
-      cell._status.title=cell._status.textContent;
+      const status=p?(p.meta.active?'active':'live'):'connecting';
+      cell._status.textContent=p?'':status;
+      if(p){cell._status.removeAttribute('title');cell._status.removeAttribute('aria-label');}
+      else cell._status.title=cell._status.ariaLabel=status;
       cell._status.classList.toggle('live',Boolean(p));
+      paintPaneHeading(cell._heading,session,status,Boolean(p&&p.meta.active));
       if(p){
         moveHostPreservingScroll(p.host,cell);
         visible.add(paneId);cell._empty.style.display='none';
@@ -7306,8 +7455,11 @@ function renderStage({fit=true}={}){
   document.dispatchEvent(new CustomEvent('oc:stage-agent',{detail:{name:activeSession()||''}}));
 }
 function paintPendingSession(session){
-  scrName.textContent=session;scrPath.textContent='waiting for terminal panes';
+  terminalLessAgent=null;paneWindowSelection=null;
+  scrName.textContent=session;scrName.title=session;scrPath.textContent='';
   scrBadge.textContent='connecting';scrBadge.className='badge off';
+  scrBadge.title=scrBadge.ariaLabel='connecting';
+  paintPaneHeading(scrName.closest('.pane-heading'),session,'connecting');
   paintClaimToggle();paintGhosttyAction();
   if(sessChip)sessChip.textContent=session;
 }
@@ -7602,7 +7754,9 @@ function createPane(session,meta){
   });
   group.paneTabs.appendChild(tab);
   const paneRec={session,meta:normalized,term,fit,host,tab,bottomJump,_xtermAtBottom:true};
+  term.onWriteParsed(()=>queueMicrotask(()=>readerApproval?.observe(paneRec,true)));
   panes.set(meta.paneId,paneRec);
+  terminalHostResizeObserver.observe(host);
   setCodexWheelModes(paneRec,normalized);installCodexWheel(paneRec);
   beginPaneSnapshot(paneRec);
   host.addEventListener('scroll',()=>{
@@ -7681,8 +7835,10 @@ function paintGhosttyAction(meta=null){
   paintPaneWindowActions(available);
 }
 function paintHead(meta){
-  scrName.textContent=paneTitle(meta);scrPath.textContent=paneTag(meta);
-  scrBadge.textContent=meta.active?'active':'live';scrBadge.className='badge live';
+  scrName.textContent=meta.session;scrName.title=paneTag(meta);scrPath.textContent='';
+  scrBadge.textContent='';scrBadge.className='badge live';
+  scrBadge.removeAttribute('title');scrBadge.removeAttribute('aria-label');
+  paintPaneHeading(scrName.closest('.pane-heading'),meta.session,meta.active?'active':'live',Boolean(meta.active));
   paintClaimToggle(meta);paintGhosttyAction(meta);
   if(sessChip)sessChip.textContent=meta.session;
 }
@@ -7742,6 +7898,7 @@ function closePane(paneId,deferFocus=false){
   const p=panes.get(paneId);if(!p)return;
   const session=p.session;
   if(p._snapshotTimer){clearTimeout(p._snapshotTimer);p._snapshotTimer=null;}
+  terminalHostResizeObserver.unobserve(p.host);
   p.term.dispose();p.host.remove();p.tab.remove();p.bottomJump.remove();panes.delete(paneId);
   if(selectedPaneBySession.get(session)===paneId)selectedPaneBySession.delete(session);
   if(activeId===paneId){
@@ -7907,6 +8064,8 @@ function jumpToSessionTarget(name,{forceFocus=false}={}){
     activeId=null;splitVisible=false;blurTerminalFocus();
     renderStage({fit:false});resetHead();
     scrName.textContent=name;scrPath.textContent='';scrBadge.textContent='';
+    scrBadge.title=scrBadge.ariaLabel='';
+    paintPaneHeading(scrName.closest('.pane-heading'),name,'live');
     promptTarget.textContent='—';promptAva.hidden=true;
     refreshComposerVocabulary();refreshHeaderStats();
     focusPaneWindow(name);return;
@@ -7931,8 +8090,10 @@ function jumpToSessionTarget(name,{forceFocus=false}={}){
     activeId=null;splitVisible=false;
     renderStage({fit:false});
     scrName.textContent=name;
-    scrPath.textContent='no terminal — runs in Codex App';
+    scrName.title=name;scrPath.textContent='';
     scrBadge.textContent='no terminal';scrBadge.className='badge off';
+    scrBadge.title=scrBadge.ariaLabel='no terminal';
+    paintPaneHeading(scrName.closest('.pane-heading'),name,'no terminal');
     stageEmpty.innerHTML=
       '<b>'+name+'</b> runs in the Codex App —<br>there is no terminal to attach to.'+
       '<br><span style="opacity:.6">visible in telemetry only</span>';
@@ -8609,6 +8770,7 @@ function handle(msg){
   if((manualDetached.has(msg.session)||paneWindows.has(msg.session))&&
      (msg.type==='reset'||msg.type==='add'||msg.type==='update'))return;
   switch(msg.type){
+    case 'approval':readerApproval?.receive(msg);break;
     case "sessions":
       handleSessions(msg.sessions);
       // connected + lazy attach: the stage starts empty by design
@@ -8672,6 +8834,7 @@ function connect(){
   });
   nextSocket.addEventListener('close',()=>{
     if(socket!==nextSocket)return;
+    readerApproval?.disconnected();
     attachedSessions.clear();requestedSessions.clear();
     sessionGroups.forEach((_,session)=>setGroupState(session,'closed'));
     refreshHeaderStats();setLink('closed','disconnected');scheduleReconnect();
@@ -8936,6 +9099,7 @@ const ROSTER_PROVIDER={
   google:{asset:'google',label:'Gemini'},
   deepseek:{asset:'deepseek',label:'DeepSeek'},
   qwen:{asset:'qwen',label:'Qwen'},
+  glm:{asset:'glm',label:'GLM'},
 };
 function rosterIsLocal(agent){
   const provider=String(agent.provider||'').trim().toLowerCase();
@@ -8944,7 +9108,7 @@ function rosterIsLocal(agent){
 function rosterProviderKey(agent){
   const alias={anthropic:'anthropic',claude:'anthropic','claude-code':'anthropic',
     openai:'openai',codex:'openai',google:'google',gemini:'google',antigravity:'google',
-    deepseek:'deepseek',dsh:'deepseek','dsh-tui':'deepseek'};
+    deepseek:'deepseek',dsh:'deepseek','dsh-tui':'deepseek',alibaba:'qwen',zai:'glm'};
   const provider=String(agent.provider||'').trim().toLowerCase();
   // Backend identity or explicit locality selects the local presentation.
   // Use the resolved model ID, never the adapter/program or profile nickname.
@@ -8952,6 +9116,7 @@ function rosterProviderKey(agent){
     const model=String(agent.model_raw||agent.model||'').toLowerCase();
     if(/deepseek/.test(model))return 'deepseek';
     if(/qwen/.test(model))return 'qwen';
+    if(/(?:^|[^a-z0-9])glm/.test(model))return 'glm';
     return '';
   }
   if(Object.hasOwn(alias,provider))return alias[provider];
@@ -8973,6 +9138,79 @@ function providerPresentation(agent){
   const text=agent.provider&&Object.hasOwn(ENG,agent.provider)?eng.lbl:
     (String(agent.program||'').trim()||String(agent.provider||'').trim()||eng.lbl);
   return {provider,text,compactText:Array.from(text).slice(0,2).join('').toUpperCase(),cls:eng.cls};
+}
+function paneHeadingModel(agent){
+  const model=agent&&typeof agent.model==='string'?agent.model.trim():'';
+  if(!model)return {text:'',title:''};
+  const raw=typeof agent.model_raw==='string'?agent.model_raw.trim():'';
+  return {text:model,
+    title:[...new Set([model,raw].filter(Boolean))].join(' · ')};
+}
+function paintProviderLogo(logo,agent){
+  const {provider,local}=providerPresentation(agent||{});
+  const key=(provider?provider.asset:'')+':'+Boolean(local);
+  if(logo.dataset.provider!==key){
+    logo.dataset.provider=key;logo.replaceChildren();logo.classList.toggle('is-local',Boolean(local));
+    const rim=svgEl('svg',{viewBox:'0 0 100 100','aria-hidden':'true'});
+    rim.appendChild(svgEl('polygon',{points:'50,4 90,27 90,73 50,96 10,73 10,27'}));
+    logo.appendChild(rim);
+    if(provider){
+      const image=document.createElement('img');image.className='provider-logo';image.alt='';
+      image.onload=()=>{image.hidden=false;rim.style.display='none';};
+      image.onerror=()=>{image.hidden=true;rim.style.display='';};
+      image.src='cockpit-assets/'+provider.asset+'.svg';logo.appendChild(image);
+      rim.style.display='none';
+    }
+  }
+  return {provider,local};
+}
+function paintAgentPortrait(face,name){
+  face.querySelector('.ini').textContent=(name[0]||'?');
+  const img=face.querySelector('img');
+  const src='/telemetry/portrait?v=4&name='+encodeURIComponent(name)+'&hi=1';
+  if(img.getAttribute('src')!==src){img.style.display='';img.src=src;img.onerror=()=>{img.style.display='none';};}
+}
+function conversationAvatar(name,model,existing=null){
+  if(!name)return null;
+  const avatar=existing||document.createElement('span');
+  if(!existing){
+    avatar.className='medal conversation-avatar';avatar.setAttribute('aria-hidden','true');
+    const face=document.createElement('span');face.className='face';
+    const initial=document.createElement('span');initial.className='ini';
+    const image=document.createElement('img');image.alt='';image.referrerPolicy='no-referrer';face.append(initial,image);
+    const badge=document.createElement('span');badge.className='provider-badge';badge.hidden=true;
+    const logo=document.createElement('img');logo.className='provider-logo';logo.alt='';badge.appendChild(logo);
+    const pill=document.createElement('span');pill.className='pill eng';pill.hidden=true;avatar.append(face,badge,pill);
+  }
+  paintAgentPortrait(avatar.querySelector('.face'),name);
+  const roster=currentAgentNamed(name)||{name};
+  // A recorded model can belong to a different maker than today's roster.
+  const identity=model?{...roster,provider:rosterIsLocal(roster)?'local':'',model,model_raw:model}:roster;
+  paintRosterProvider(avatar,identity);avatar.querySelector('.pill.eng').hidden=true;
+  return avatar;
+}
+function conversationPeerAvatar(name,existing=null){
+  if(!currentAgentNamed(name))return null;
+  return conversationAvatar(name,'',existing);
+}
+function paintPaneHeading(heading,session,status,active=false){
+  if(!heading)return;
+  const agent=currentAgentNamed(session),logo=heading.querySelector('.pane-provider'),model=heading.querySelector('.pane-model');
+  const {provider,local}=paintProviderLogo(logo,agent);
+  const working=Boolean(active&&agent&&agent.running===true&&agent.act_state==='work');
+  logo.classList.toggle('is-working',working);
+  const state=agent&&agent.running===true?agent.act_state:null;
+  const activity=state==='work'?'Working':state==='ask'||state==='question'?'Waiting for you':state==='wait'?'Waiting':'';
+  logo.title=logo.ariaLabel=[provider?provider.label:'Agent',local?'Local':'',activity,status].filter(Boolean).join(' · ');
+  const label=paneHeadingModel(agent);model.hidden=!label.text;model.textContent=label.text;model.title=label.title;
+}
+function refreshPaneHeadings(){
+  splitCells.forEach((cell,session)=>{
+    const p=panes.get(paneIdForSession(session));
+    paintPaneHeading(cell._heading,session,p?(p.meta.active?'active':'live'):'connecting',Boolean(p&&p.meta.active));
+  });
+  const p=panes.get(activeId),session=terminalLessAgent||paneWindowSelection||(p&&p.session)||scrName.textContent;
+  paintPaneHeading(scrName.closest('.pane-heading'),session,p?(p.meta.active?'active':'live'):scrBadge.textContent||'live',Boolean(p&&p.meta.active));
 }
 function paintRosterProvider(el,agent){
   const {provider,text,cls,local}=providerPresentation(agent);
@@ -9065,6 +9303,9 @@ document.body.appendChild(agentDetail);
 let detailAnchor=null;
 let selectedAgent=null,currentAgents=[];
 const descriptorStore=RosterDescriptor.createStableDescriptorStore();
+let rosterAnnotationEpoch=0;
+const rosterEditor=OrreryRosterEdit.mount({container:rosterEl,getAgent:currentAgentNamed,onSave:applyRosterAnnotation,
+  onOpen:()=>{if(detailAnchor)hideAgentDetail(detailAnchor);},onError:message=>showToast(message,true),isSelecting:()=>rosterSelectMode});
 const DESCRIPTOR_TASK_KEY='oc-descriptor-task',DESCRIPTOR_TASK_MAX=400;
 let descriptorTaskState={},descriptorTaskDirty=false,descriptorTaskSaveAt=0;
 try{descriptorTaskState=JSON.parse(localStorage.getItem(DESCRIPTOR_TASK_KEY)||'{}')||{};}catch(_){descriptorTaskState={};}
@@ -9077,6 +9318,21 @@ function selectAgent(name){selectedAgent=name;tiles.forEach((el,n)=>el.classList
   // used to follow only an activated terminal pane (2026-09-25).
   document.dispatchEvent(new CustomEvent('oc:filter-agent',{detail:{agent:name}}));}
 function currentAgentNamed(name){return currentAgents.find(agent=>agent&&agent.name===name)||null;}
+function paintSplitRoles(agents){
+  agents.forEach(agent=>{
+    const cell=splitCells.get(agent.name);if(!cell||!cell._role)return;
+    const role=String(agent.annot&&agent.annot.role||'').trim();
+    cell._role.hidden=!role;cell._role.textContent=role;
+  });
+}
+function applyRosterAnnotation(name,annotation){
+  rosterAnnotationEpoch++;
+  const agent=currentAgentNamed(name);if(!agent)return;
+  agent.annot=annotation;agent.task=OrreryRosterEdit.effectiveTask(agent);
+  agent.descriptor=descriptorStore.get(agent,currentAgents);noteDescriptorTasks(currentAgents);
+  paintTile(tiles.get(name),agent);paintSplitRoles(currentAgents);applyRosterFilter();
+  document.dispatchEvent(new CustomEvent('oc:agents',{detail:{agents:currentAgents}}));
+}
 function paintBulkTileState(el,agent){
   const eligible=isBulkExitEligibleAgent(agent);
   const selected=eligible&&bulkSelectedAgents.has(agent.name);
@@ -9106,6 +9362,7 @@ function updateRosterBulkUI(){
   rosterSelectBtn.disabled=bulkExitBusy;
 }
 function setRosterSelectMode(on){
+  if(on)rosterEditor.close(false);
   if(bulkExitBusy)return;
   rosterSelectMode=Boolean(on);
   if(!rosterSelectMode)bulkSelectedAgents.clear();
@@ -9206,6 +9463,7 @@ function applyRosterFilter(){
   rosterFilterStatus.hidden=!filtering||shown!==0;
   rosterFilterSummary.textContent=`${shown}/${tiles.size}`;
   paintPinnedBoundary();
+  rosterEditor.reposition();
 }
 rosterFilter.addEventListener('input',applyRosterFilter);
 document.getElementById('needChip').addEventListener('click',()=>{
@@ -9264,6 +9522,7 @@ function positionAgentDetail(el){
 }
 function showAgentDetail(el){
   const a=currentAgentNamed(el&&el.dataset.agent);if(!a)return;
+  if(rosterEditor.isEditing(a.name))return;
   const detail=agentDetailModel(a,currentAgents);
   detailAnchor=el;
   agentDetail.querySelector('.agent-detail-name').textContent=detail.name;
@@ -9318,6 +9577,7 @@ function tileFor(a){
     const copyButton=el.querySelector('.name-copy');
     copyButton.setAttribute('aria-label',`Copy name ${a.name}`);copyButton.title=`Copy name · ${a.name}`;
     copyButton.onclick=event=>handleNameCopy(a.name,event);
+    rosterEditor.bindTile(el,a.name);
     bindAgentDetail(el);
     rosterEl.appendChild(el);
     tiles.set(a.name,el);
@@ -9332,13 +9592,12 @@ function paintTile(el,a){
   // reads as random color noise — lineage color lives in the graph views,
   // where the tree gives it meaning).
   el.querySelector('.face').style.removeProperty('--lineage-ring');
-  el.querySelector('.ini').textContent=(a.name[0]||'?');
-  const img=el.querySelector('.face img');
-  const src='/telemetry/portrait?v=4&name='+encodeURIComponent(a.name)+'&hi=1';
-  if(img.getAttribute('src')!==src){img.style.display='';img.src=src;img.onerror=()=>{img.style.display='none';};}
+  paintAgentPortrait(el.querySelector('.face'),a.name);
   el.querySelector('.cname').textContent=a.name;
   paintRosterProvider(el,a);paintRosterHarness(el,a);
-  el.querySelector('.pill.model').textContent=(a.model_raw||a.model||a.cmd||'—')+(a.ctx_window?(' · '+a.ctx_window):'');
+  const modelLabel=paneHeadingModel(a),modelPill=el.querySelector('.pill.model');
+  modelPill.textContent=(modelLabel.text||a.model_raw||a.cmd||'—')+(a.ctx_window?(' · '+a.ctx_window):'');
+  modelPill.title=modelLabel.title||a.model_raw||a.cmd||'';
   const descriptor=a.descriptor||RosterDescriptor.deriveRosterDescriptor(a,currentAgents);
   const secondary=descriptor.secondary;
   const rolePill=el.querySelector('.pill.role');rolePill.hidden=!secondary;rolePill.textContent=secondary;
@@ -9348,6 +9607,7 @@ function paintTile(el,a){
   else{ctxEl.classList.add('none');fill.style.width='0%';pct.textContent='—';}
   el.querySelector('.glyph').textContent=act.glyph;
   el.querySelector('.statetext').textContent=descriptor.primary;
+  el.querySelector('.statetext').title=OrreryRosterEdit.taskTitle(a);
   const updated=el.querySelector('.descriptor-updated');
   const updatedAt=descriptorTaskState[a.name]&&descriptorTaskState[a.name].updatedAt;
   updated.hidden=!updatedAt;updated.textContent=updatedAt?`updated ${relTime(updatedAt/1000)} ago`:'';
@@ -9368,7 +9628,7 @@ function paintPinnedTileState(el,name){
 }
 function paintPinnedBoundary(){
   let lastPinned=null,hasVisibleUnpinned=false;
-  [...rosterEl.children].forEach(el=>{
+  [...rosterEl.querySelectorAll(':scope > .agent')].forEach(el=>{
     el.classList.remove('pinned-boundary');
     if(el.classList.contains('filtered-out'))return;
     if(pinnedAgents.has(el.dataset.agent))lastPinned=el;
@@ -9527,12 +9787,14 @@ function reorderRoster(live){
   const want=live.slice().sort((a,b)=>Number(pinnedAgents.has(b.name))-Number(pinnedAgents.has(a.name))
     ||rosterRank(a)-rosterRank(b)
     ||activityOf(b)-activityOf(a)||a.name.localeCompare(b.name));
-  const current=[...rosterEl.children].map(el=>el.dataset.agent);
+  const current=[...rosterEl.querySelectorAll(':scope > .agent')].map(el=>el.dataset.agent);
   if(!(want.length===current.length&&want.every((a,i)=>a.name===current[i])))
     want.forEach(a=>{const el=tiles.get(a.name);if(el)rosterEl.appendChild(el);});
   paintPinnedBoundary();
+  rosterEditor.reposition();
 }
 async function pollAgents(){
+  const annotationEpoch=rosterAnnotationEpoch;
   try{
     // only the live rows and the retired names: the full 30-day roster is
     // ~30x larger and every non-live row was filtered out below anyway
@@ -9548,12 +9810,14 @@ async function pollAgents(){
       throw new Error(String(response.status));
     }
     const d=await response.json();
+    if(annotationEpoch!==rosterAnnotationEpoch)return false;
     pruneRetiredPins(d);
     // warmup(warm-*/pending-*) はプール予熱でありエージェントではない。
     // 従来は名前順で最下部に沈んで見えなかったが、recency ソート導入で
     // 浮上するようになったため明示除外（claim され改名された時点で現れる）。
     const live=(d.agents||[]).filter(a=>
       (a.running||a.category==='agent')&&a.category!=='warmup');
+    live.forEach(agent=>{agent.registered_task=agent.task||'';agent.task=OrreryRosterEdit.effectiveTask(agent);});
     noteDescriptorTasks(live);
     descriptorStore.retain(live.map(agent=>agent.name));
     live.forEach(agent=>{agent.descriptor=descriptorStore.get(agent,live);});
@@ -9567,12 +9831,8 @@ async function pollAgents(){
     reorderRoster(live);
     renderCrewCounts(live);
     rosterTag.hidden=true;rosterTag.textContent='';agentDot.className='dot open';
-    live.forEach(agent=>{
-      const cell=splitCells.get(agent.name);
-      if(!cell||!cell._role)return;
-      const role=String(agent.annot&&agent.annot.role||'').trim();
-      cell._role.hidden=!role;cell._role.textContent=role;
-    });
+    paintSplitRoles(live);
+    refreshPaneHeadings();
     applyRosterFilter();
     document.dispatchEvent(new CustomEvent('oc:agents',{detail:{agents:live}}));
     if(spawnOverlay.classList.contains('on'))populateSpawnParents();
@@ -9636,6 +9896,7 @@ function assignLineageHues(live){
    They subscribe to 'oc:agents' / 'oc:mail' document events for updates. */
 window.OC=Object.freeze({
   esc,relTime,jumpToAgent,rootOf,providerPresentation,
+  renderPeerAvatar:(name,existing)=>currentAgentNamed(name)?conversationAvatar(name,'',existing):null,
   lineageHue,                       // Map: agent name -> lineage hex
   get lineageParent(){return lineageParent;},  // Map: child -> parent
   agents:()=>currentAgents,
@@ -10636,6 +10897,7 @@ function composerTargetPresent(target){
   return false;
 }
 let promptSubmissionSequence=0;
+let promptAttemptSequence=0;
 function sendPrompt(opts){
   const bypass=opts&&opts.bypassGuard;
   const text=promptInput.value;
@@ -10651,16 +10913,19 @@ function sendPrompt(opts){
   // then a separate CR to submit — same shape the pty expects from a human.
   if(!send({type:"input",paneId:target.paneId,data:"\x1b[200~"+text+"\x1b[201~"})){showToast('not connected — try again');return;}
   const submittedAt=Date.now();
+  const attemptId=submittedAt+':attempt:'+(++promptAttemptSequence);
+  document.dispatchEvent(new CustomEvent('oc:prompt-sending',{detail:{attemptId,name:target.session,text,startedAt:submittedAt}}));
+  const cancel=()=>document.dispatchEvent(new CustomEvent('oc:prompt-send-cancelled',{detail:{attemptId,name:target.session}}));
   setTimeout(()=>{
-    if(!composerTargetPresent(target))return;
+    if(!composerTargetPresent(target)){cancel();return;}
     if(send({type:"input",paneId:target.paneId,data:"\r"})){
       document.dispatchEvent(new CustomEvent('oc:tour-action',{detail:{id:'talk',name:p.session}}));
-      document.dispatchEvent(new CustomEvent('oc:prompt-submitted',{detail:{name:target.session,text,submittedAt,id:submittedAt+':'+(++promptSubmissionSequence)}}));
-    }else showToast(`send cancelled → ${target.session}: disconnected before Enter; reconnect and retry`,true);
+      document.dispatchEvent(new CustomEvent('oc:prompt-submitted',{detail:{name:target.session,text,submittedAt,id:submittedAt+':'+(++promptSubmissionSequence),attemptId}}));
+      showToast(`sent → ${p.session}`);
+    }else{cancel();showToast(`send cancelled → ${target.session}: disconnected before Enter; reconnect and retry`,true);}
   },250);
   pushPromptHistory(text);
   promptInput.value='';saveDraft();closeSlashMenu();
-  showToast(`sent → ${p.session}`);
 }
 function sendInterrupt(){
   const p=panes.get(activeId);
@@ -10804,7 +11069,7 @@ function handleComposerPaste(e){
     if(hasImage){
       if(!composerTargetPresent(target))return;
       if(!send({type:"input",paneId:target.paneId,data:"\x16"})){showToast('not connected — try again');return;}
-      showToast(`image → ${p.session} (TUI clipboard paste)`);
+      showToast(`Image paste sent → ${p.session} (TUI clipboard paste)`);
       return;
     }
     showToast('nothing on the clipboard the composer can use');
@@ -10812,7 +11077,7 @@ function handleComposerPaste(e){
     if(hasImage&&!onWsl){
       if(!composerTargetPresent(target))return;
       if(!send({type:"input",paneId:target.paneId,data:"\x16"})){showToast('not connected — try again');return;}
-      showToast(`image → ${p.session} (TUI clipboard paste)`);
+      showToast(`Image paste sent → ${p.session} (TUI clipboard paste)`);
     }else showToast('could not read the clipboard');
   });
 }
@@ -11017,7 +11282,7 @@ const conversationView=(()=>{
   function asset(tag,attribute,url){return new Promise((resolve,reject)=>{
     const el=document.createElement(tag);el[attribute]=url;
     if(tag==='link')el.rel='stylesheet';
-    el.onload=resolve;el.onerror=()=>{el.remove();reject(new Error('Conversation history could not be loaded.'));};
+    el.onload=resolve;el.onerror=()=>{el.remove();reject(new Error('Reader could not be loaded.'));};
     document.head.appendChild(el);
   });}
   async function ensure(){
@@ -11029,9 +11294,16 @@ const conversationView=(()=>{
       await asset('script','src','conversation_source.js');
       await asset('script','src','conversation_preview.js');
       await asset('script','src','conversation_mail.js');
+      await asset('script','src','conversation_speaker.js');
       await asset('script','src','conversation_terminal.js');
       await asset('script','src','conversation_markdown.js');
       await asset('script','src','conversation_view.js');
+      await asset('link','href','reader_approval.css');
+      await asset('script','src','reader_approval.js');
+      readerApproval=OrreryReaderApproval.mount({
+        screen:document.querySelector('.screen'),getPane:()=>panes.get(activeId),
+        getPanes:()=>panes.values(),send:payload=>send(payload),openTerminal:()=>conversationView.close(),
+      });
       // A user operation (conversation_view.js userRequest: the named POSTs,
       // the clipboard files, a file preview; from the NETWORK frame the
       // dashboard's named actions) is never kept waiting behind History's held polls: no poll is
@@ -11061,6 +11333,9 @@ const conversationView=(()=>{
         getOwner:name=>panes.get(paneIdForSession(name)),
         activate:name=>focusSplitSession(name),
         jumpToEvent:jumpConversationEvent,
+        openExternalUrl,
+        renderPeerAvatar:conversationPeerAvatar,
+        renderAvatar:conversationAvatar,
       });
       return instance;
     })().catch(error=>{loading=null;showToast(error.message,true);return null;});

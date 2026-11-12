@@ -137,6 +137,12 @@ Hovering over a tile shows a copy icon to the right of the agent name. Clicking 
 
 In a window where the clipboard cannot be used, or when the browser does not allow writing, `COPY FAILED · …` is shown. It is also shown as a failure when there is no response after 3 seconds. The icon is not shown during Select mode.
 
+### Edit Role and Task
+
+Hover over a roster card to reveal the pencil beside its name, or reach it with Tab. Press it to open Role and Task fields below the card. Enter or Save saves; Esc or Cancel cancels. Use Shift+Enter for a new line in Task.
+
+Role accepts up to 40 characters and Task up to 200. Task is a display override of the description registered with Mail. Save an empty Task to restore the registered description; while overridden, its title shows the original value. Saving updates the roster, Split role labels, and Planetarium immediately. Task editing requires dashboard API 38 or later; older dashboards offer Role only.
+
 ### Pin
 
 With many agents running, the roster keeps reordering by state. If you pin the agents you always look at, such as a parent agent or a reviewer, they stay at the top regardless of reordering.
@@ -213,6 +219,14 @@ Clicking the active session label / pane tab again also jumps to the end. `Cmd+�
 At startup, the backend connects one recorder connection for each live tmux session. Pane attach from the browser is deferred until you act on a tile / the palette.
 
 While you are scrolled up reading past output, new output does not pull you back to the end. When the backend restarts, the cockpit reloads the page automatically (the composer draft is kept).
+
+### Approvals in Reader
+
+In the PC Reader, an `Approval needed` band appears directly above the composer. Click it or press Enter to open the complete request and choices. Focus moves to the choice that allows only this request; press Enter again to send it. Persistent permissions are never the default.
+
+Supported menus are the four-choice Codex MCP tool prompt, the three-choice Codex command outside the sandbox, and the four-choice Claude Read outside the working directories. Incomplete or other menus offer `Open terminal to review` for the same pane. If the screen changes before sending, no keys are sent and the band asks you to review again.
+
+`Response sent` means the keys were delivered, not that the requested operation succeeded. The response cannot be repeated while the prompt remains. An `Outcome unknown` is never retried automatically; check Terminal.
 
 ### Optional Terminal on your phone
 

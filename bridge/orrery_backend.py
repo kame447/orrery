@@ -52,7 +52,7 @@ from usage_probe import (
 )
 from conversation_history import (HistoryUnavailable, UnchangedPolls, bound_agent, bound_signature, open_reader)
 from conversation_mail import received as recorded_mail
-from conversation_preview import ReferenceStore, PreviewUnavailable, binding as conversation_binding
+from conversation_preview import ReferenceStore, PreviewUnavailable, clicked_image, binding as conversation_binding
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8791
@@ -285,6 +285,14 @@ PROXY_ROUTES = {
 
 _ANNOTATIONS_CACHE_SECONDS = 4.5
 _annotations_cache: tuple[float, dict[str, dict[str, str]]] = (0.0, {})
+_annotations_generation = 0
+
+
+def invalidate_annotations_cache() -> None:
+    """A completed annotation write fences every older compatibility read."""
+    global _annotations_cache, _annotations_generation
+    _annotations_generation += 1
+    _annotations_cache = (0.0, {})
 
 
 def normalize_annotations(raw: Any) -> dict[str, dict[str, str]]:
@@ -305,6 +313,9 @@ def normalize_annotations(raw: Any) -> dict[str, dict[str, str]]:
             "emoji": str(value.get("emoji", "")).strip()[:8],
             "group": str(value.get("group", "")).strip()[:24],
         }
+        task = str(value.get('task') or '').strip()[:200]
+        if task:
+            annot['task'] = task
         if any(annot.values()):
             labels[name] = annot
     return labels
@@ -331,23 +342,29 @@ async def annotations_by_agent(
     but only use it when the dashboard cannot be reached.
     """
     global _annotations_cache
-    now = time.monotonic()
-    if now - _annotations_cache[0] < _ANNOTATIONS_CACHE_SECONDS:
-        return _annotations_cache[1]
-    try:
-        async with http_session.get(DASHBOARD_URL + "/api/annotations") as response:
-            body = await response.read()
-            if response.status == 200:
-                try:
-                    labels = normalize_annotations(json.loads(body))
-                except (TypeError, json.JSONDecodeError, UnicodeDecodeError):
+    while True:
+        now = time.monotonic()
+        if now - _annotations_cache[0] < _ANNOTATIONS_CACHE_SECONDS:
+            return _annotations_cache[1]
+        generation = _annotations_generation
+        try:
+            async with http_session.get(DASHBOARD_URL + "/api/annotations") as response:
+                body = await response.read()
+                if response.status == 200:
+                    try:
+                        labels = normalize_annotations(json.loads(body))
+                    except (TypeError, json.JSONDecodeError, UnicodeDecodeError):
+                        labels = {}
+                else:
                     labels = {}
-            else:
-                labels = {}
-    except (ClientError, asyncio.TimeoutError):
-        labels = annotations_from_file()
-    _annotations_cache = (time.monotonic(), labels)
-    return labels
+        except (ClientError, asyncio.TimeoutError):
+            labels = annotations_from_file()
+        if generation != _annotations_generation:
+            # A post-save poll may share this in-flight roster request. Read
+            # the current generation instead of returning its stale snapshot.
+            continue
+        _annotations_cache = (time.monotonic(), labels)
+        return labels
 
 
 def _pending_question_in(text: str) -> bool:
@@ -514,7 +531,7 @@ def prepare_agents_payload(
     for agent in kept:
         if isinstance(agent, dict) and isinstance(agent.get("name"), str):
             annot = labels.get(agent["name"])
-            if annot:
+            if annot and 'annot' not in agent:
                 agent["annot"] = annot
                 changed = True
             if agent.get("running") and agent.get("act_state") == "wait" \
@@ -1486,6 +1503,7 @@ class SessionBridgeManager:
         peer: WebSocketPeer,
         attached: set[str],
         payload: dict[str, Any],
+        *, approval_request=None,
     ) -> None:
         message_type = payload.get("type")
         if (isinstance(self.tmux_bin, LegacyTargetBoundary)
@@ -1527,7 +1545,7 @@ class SessionBridgeManager:
                 await state.bridge.refresh_panes(send_captures=True)
             return
 
-        if message_type not in {"input", "codex-page", "resize", "release", "split", "close"}:
+        if message_type not in {"input", "codex-page", "resize", "release", "split", "close", "approval-inspect", "approval-answer"}:
             await send_error(peer, None, "unsupported message type")
             return
 
@@ -1538,10 +1556,40 @@ class SessionBridgeManager:
 
         state = self._find_attached_pane(attached, pane_id)
         if state is None:
+            if message_type in {'approval-inspect', 'approval-answer'}:
+                await peer.send_json(dict(type='approval', paneId=pane_id, session=payload.get('session'),
+                    requestId=payload.get('requestId'), state='unavailable', message='Pane unavailable'))
+                return
             await send_error(peer, None, f"pane is not attached: {pane_id}")
             return
 
         session = state.bridge.config.session
+        if message_type in {'approval-inspect', 'approval-answer'}:
+            from reader_approval import ApprovalCoordinator
+            bridge = state.bridge
+            proof = None
+            if isinstance(bridge.config.tmux_bin, FreshPaneBoundary):
+                target = bridge.config.tmux_bin
+                proofs = bridge._fresh_peer_proofs.get(peer)
+                if proofs is None or any(k in payload and payload[k] != v for k, v in target.ref.items()):
+                    await peer.send_json(dict(type='approval', paneId=pane_id, session=bridge.config.session,
+                        requestId=payload.get('requestId'), state='unavailable', message='Pane unavailable'))
+                    return
+                proof = proofs[0]
+                pane_id = target.pane_id
+            coordinator = getattr(bridge, '_approval_coordinator', None)
+            if coordinator is None:
+                async def harness(target_pane):
+                    return await approval_harness(approval_request, bridge, target_pane)
+                coordinator = bridge._approval_coordinator = ApprovalCoordinator(bridge, harness_resolver=harness)
+            if message_type == 'approval-inspect':
+                result = await coordinator.inspect(pane_id, peer)
+            else:
+                result = await coordinator.answer(pane_id, peer, payload.get('token'), payload.get('choice'),
+                                                  payload.get('operation'), proof=proof)
+            await bridge.send_json(peer, dict(type='approval', paneId=pane_id,
+                requestId=payload.get('requestId'), **result))
+            return
         if isinstance(state.bridge.config.tmux_bin,FreshPaneBoundary):
             target=state.bridge.config.tmux_bin
             if any(k in payload and payload[k]!=v for k,v in target.ref.items()):raise TargetRefused('FRESH_TMUX_TARGET_CHANGED')
@@ -2007,6 +2055,39 @@ async def conversation_binding_route(request: web.Request, name: str):
     return data['agent']
 
 
+async def approval_harness(request, bridge, pane):
+    """Resolve the named agent on the server; browser claims never authorize keys."""
+    if request is None or not bridge.panes:
+        return None
+    # A roster row describes the agent's original pane, not arbitrary splits
+    # running under the same session name.
+    primary = min(bridge.panes.values(), key=lambda p: (p.window_index, p.pane_index))
+    if pane != primary.pane_id:
+        return None
+    name = bridge.config.session
+    try:
+        async with asyncio.timeout(3):
+            payload = await conversation_live_agents(request)
+        if not isinstance(payload, dict) or not isinstance(payload.get('agents'), list):
+            return None
+        rows = [r for r in payload.get('agents', []) if isinstance(r, dict) and r.get('name') == name]
+        row = rows[0] if len(rows) == 1 else None
+        if not isinstance(row, dict) or row.get('name') != name or row.get('running') is not True:
+            return None
+        if isinstance(bridge.config.tmux_bin, FreshPaneBoundary):
+            if any(row.get(k) != v for k, v in bridge.config.tmux_bin.ref.items()):
+                return None
+        program = row.get('program')
+        provider = row.get('provider')
+        if program in ('codex', 'codex-cli') and provider in ('openai', 'codex'):
+            return 'codex'
+        if program in ('claude', 'claude-code') and provider in ('anthropic', 'claude'):
+            return 'claude'
+    except (ClientError, asyncio.TimeoutError, ValueError, TypeError, KeyError):
+        pass
+    return None
+
+
 async def conversation_bound_row(request: web.Request, name: str, not_before: float | None = None) -> dict:
     shared=request.app.get(CONVERSATION_DASHBOARD_KEY)
     if shared is not None:
@@ -2249,7 +2330,8 @@ async def conversation_full_read(request, name, query, cursor, limit, polls, sta
                 return polls.remember(name,row,result,signature,verified,digest,provider=provider,fingerprint=fingerprint),True
         store=request.app.get(CONVERSATION_REFERENCES_KEY)
         if store is not None:
-            tools=[event for event in result['events'] if event['kind'] in {'tool','tool_result'}]
+            tools=[event for event in result['events'] if event['kind'] in {'tool','tool_result'} or
+                   event['kind']=='text' and event['role']=='user']
             if tools:
                 await asyncio.to_thread(store.decorate_all,row,reader,tools)
         checked=polls.clock() if polls is not None else 0.0
@@ -2376,14 +2458,19 @@ async def conversation_reference(request: web.Request, *, reveal: bool = False) 
     headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',
              'Content-Security-Policy':"default-src 'none'; frame-ancestors 'none'"}
     try:
+        thumbnail=False
         if reveal:
             if request.query:raise PreviewUnavailable('invalid_query')
             payload=await request.json()
             if not isinstance(payload,dict) or set(payload)!={'ref'}:raise PreviewUnavailable('invalid_query')
             ref=payload['ref']
         else:
-            if set(request.query)!={'ref'} or len(request.query.getall('ref'))!=1:raise PreviewUnavailable('invalid_query')
+            if (set(request.query) not in ({'ref'},{'ref','thumbnail'})
+                    or len(request.query.getall('ref',[]))!=1
+                    or ('thumbnail' in request.query and request.query.getall('thumbnail')!=['1'])):
+                raise PreviewUnavailable('invalid_query')
             ref=request.query['ref']
+            thumbnail=request.query.get('thumbnail')=='1'
         if not isinstance(ref,str) or not re.fullmatch(r'[A-Za-z0-9_-]{32}',ref):raise PreviewUnavailable('invalid_reference')
         # Fresh has only a public text projection. Never bypass it by discovering
         # provider paths through another runtime route.
@@ -2391,7 +2478,7 @@ async def conversation_reference(request: web.Request, *, reveal: bool = False) 
         store=request.app[CONVERSATION_REFERENCES_KEY]
         name=store.owner(ref)
         row=await conversation_bound_row(request,name)
-        result=await asyncio.to_thread(store.read,ref,row,reveal=reveal)
+        result=await asyncio.to_thread(store.read,ref,row,reveal=reveal,thumbnail=thumbnail)
         current=await conversation_bound_row(request,name)
         if conversation_binding(row)!=conversation_binding(current):raise PreviewUnavailable('reference_expired')
         if reveal:
@@ -2414,6 +2501,67 @@ async def serve_conversation_preview(request: web.Request) -> web.Response:
 
 async def reveal_conversation_reference(request: web.Request) -> web.Response:
     return await conversation_reference(request,reveal=True)
+
+
+async def preview_clicked_path(request: web.Request) -> web.Response:
+    """Own-page JSON POST only: read a clicked local image, never text."""
+    headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',
+             'Content-Security-Policy':"default-src 'none'; frame-ancestors 'none'"}
+    try:
+        payload=await request.json()
+        if request.query or not isinstance(payload,dict) or set(payload)!={'path'}:
+            raise PreviewUnavailable('invalid_query')
+        result=await asyncio.to_thread(clicked_image,payload['path'])
+        return web.json_response(dict(result,ok=True),headers=headers)
+    except PreviewUnavailable as exc:
+        return web.json_response({'ok':False,'error':str(exc)},status=400,headers=headers)
+    except (ValueError,TypeError):
+        return web.json_response({'ok':False,'error':'invalid_query'},status=400,headers=headers)
+
+
+def probe_reader_path(text):
+    """Bounded literal existence checks; no reads or ellipsis directory walks."""
+    if (not isinstance(text,str) or not text.startswith(('/', '~/')) or len(text)>2000
+            or re.search(r'[\x00-\x1f\x7f]',text)):return None
+    # Long prose must not consume every slot before the filename boundary.
+    # Try the full text, spaces and ASCII-to-Unicode transitions first, then
+    # remaining Unicode positions. Keep the longest match within 64 stats.
+    primary={len(text)}
+    other=set()
+    for i,ch in enumerate(text):
+        if ch==' ' or not ch.isascii() and i>0 and text[i-1].isascii():primary.add(i)
+        if not ch.isascii():other.add(i)
+    ends=sorted(primary,reverse=True)+sorted(other-primary,reverse=True)
+    best=None;seen=set();attempts=0
+    for end in ends:
+        # A slash before a path component is not a prose boundary. Explicit
+        # directory paths (whole input or followed by whitespace) stay valid.
+        if end<len(text) and text[end-1:end]=='/' and not text[end].isspace():continue
+        shown=text[:end].rstrip(' .,;:!?')
+        if len(shown)<2 or shown in seen or best and len(shown)<=len(best['shown']):continue
+        seen.add(shown);attempts+=1
+        try:
+            path=Path(shown).expanduser()
+            if path.exists():
+                best={'shown':shown,'path':str(path)}
+                if end==len(text):return best
+        except (OSError,ValueError):pass
+        if attempts>=64:break
+    return best
+
+
+async def probe_conversation_paths(request: web.Request) -> web.Response:
+    try:
+        payload=await request.json()
+        texts=payload.get('texts') if isinstance(payload,dict) else None
+        if (request.query or not isinstance(payload,dict) or set(payload)!={'texts'}
+                or not isinstance(texts,list) or len(texts)>32
+                or any(not isinstance(text,str) or len(text)>2000 for text in texts)
+                or sum(map(len,texts))>32768):raise ValueError
+        results=await asyncio.to_thread(lambda:[probe_reader_path(text) for text in texts])
+        return web.json_response({'ok':True,'paths':results},headers={'Cache-Control':'no-store'})
+    except (ValueError,TypeError):
+        return web.json_response({'ok':False,'error':'invalid_query'},status=400)
 
 
 async def proxy_spawn(request: web.Request) -> web.Response:
@@ -2524,6 +2672,8 @@ async def proxy_dashboard_passthrough(request: web.Request) -> web.Response:
             **({"timeout": ClientTimeout(total=ACTION_PROXY_TIMEOUT)} if action else {}),
         ) as response:
             payload = await response.read()
+            if action and request.path == '/api/annotate' and 200 <= response.status < 300:
+                invalidate_annotations_cache()
             content_type = response.headers.get(
                 "Content-Type", "application/octet-stream"
             )
@@ -2895,6 +3045,8 @@ def save_clipboard_image(png: bytes) -> str:
                  0o600)
     with os.fdopen(fd, "wb") as fh:
         fh.write(png)
+    from conversation_images import remember_saved
+    remember_saved(str(target))
     old = sorted(folder.glob("clipboard-*.png"), key=lambda p: p.stat().st_mtime,
                  reverse=True)[CLIPBOARD_IMAGE_KEEP:]
     for stale in old:
@@ -4375,7 +4527,10 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
                     await send_error(peer, None, "message must be a JSON object")
                     continue
                 try:
-                    await manager.handle_message(peer, attached, payload)
+                    if payload.get('type') in {'approval-inspect', 'approval-answer'}:
+                        await manager.handle_message(peer, attached, payload, approval_request=request)
+                    else:
+                        await manager.handle_message(peer, attached, payload)
                 except Exception as exc:
                     session = payload.get("session")
                     await send_error(
@@ -4489,17 +4644,18 @@ PUBLIC_FILES = {"/" + name: name for name in (
     "orrery_view.css", "mail_view.css", "spawn_picker.css", "theme_light.css",
     "cockpit_tour.css", "telemetry_light.css",
     "spawn_picker.js", "effort_slider.js", "spawn_catalog_loader.js", "prefs_sync.js", "phone_settings.js",
-    "theme_core.js", "theme_controller.js", "roster_descriptor.js", "demo_mask.js",
+    "theme_core.js", "theme_controller.js", "roster_descriptor.js", "roster_edit.js", "demo_mask.js",
     "demo_mode.js", "orrery_view.js", "mail_view.js", "cockpit_tour.js",
     "cockpit_full_tour.js", "telemetry_light.js",
     "conversation_source.js", "conversation_view.js", "conversation_view.css", "conversation_preview.js",
-    "conversation_mail.js", "conversation_terminal.js", "conversation_markdown.js",
+    "conversation_mail.js", "conversation_speaker.js", "conversation_terminal.js", "conversation_markdown.js",
+    "reader_approval.js", "reader_approval.css",
     "vendor/xterm-5.5.0/xterm.js", "vendor/xterm-5.5.0/xterm.css",
     "vendor/addon-fit-0.10.0/addon-fit.js",
     "vendor/addon-web-links-0.11.0/addon-web-links.js",
 )}
 PUBLIC_FILES.update({"/cockpit-assets/" + name: "assets/" + name for name in (
-    "anthropic.svg", "openai.svg", "google.svg", "qwen.svg", "deepseek.svg", "dsh.svg", "hermes.png",
+    "anthropic.svg", "openai.svg", "google.svg", "qwen.svg", "glm.svg", "deepseek.svg", "dsh.svg", "hermes.png",
 )})
 
 
@@ -4533,14 +4689,39 @@ def create_app(tmux_bin: str = "tmux", *, mobile_input_enabled: bool = False,
             state=manager.states.get(target.key)
         else:state = manager.states.get(name) if manager is not None else None
         return state.bridge if state is not None and not state.bridge._closed else None
+    async def mobile_image_workspace(choice):
+        # Pane indices can move or survive the original agent's pane. Check
+        # this exact pane's current directory against the bound workspace.
+        bridge=choice['bridge']
+        from types import SimpleNamespace
+        from conversation_preview import workspace, root_path
+        request=SimpleNamespace(app=app)
+        try:
+            row=await asyncio.wait_for(conversation_bound_row(request,choice['name']),3)
+            if choice['ref'] and any(row.get(k)!=v for k,v in choice['ref'].items()):return None
+            with open_reader(row) as reader:
+                root=workspace(reader)
+                if root is None:return None
+                # Do not adopt a transcript that changed bindings while opened.
+                current=await asyncio.wait_for(conversation_bound_row(request,choice['name'],asyncio.get_running_loop().time()),3)
+                if conversation_binding(current)!=conversation_binding(row):return None
+                reader.assert_identity()
+                location=await bridge.send_command(['display-message','-p','-t',choice['pane_id'],
+                                                   '#{pane_current_path}'],timeout=3)
+                if (location is None or not location.ok or location.overflow or len(location.lines)!=1
+                        or root_path(location.lines[0])!=root):return None
+                return root
+        except (HistoryUnavailable,PreviewUnavailable,OSError,ValueError,RuntimeError,ClientError,asyncio.TimeoutError):return None
     coordinator = install_routes(app, InputCoordinator(PaneResolver(app[TMUX_BIN_KEY]), mobile_bridge,
-                                                       enabled=mobile_input_enabled))
+                                                       enabled=mobile_input_enabled,image_workspace=mobile_image_workspace))
     import mobile_access
     mobile_access.install(app, coordinator, config_path=CONFIG_PATH)
     app.router.add_get("/telemetry/agents", proxy_dashboard)
     app.router.add_get("/telemetry/conversation", serve_conversation)
     app.router.add_get("/telemetry/conversation/stats", serve_conversation_stats)
     app.router.add_get('/telemetry/conversation/preview', serve_conversation_preview)
+    app.router.add_post('/telemetry/conversation/path-image', preview_clicked_path)
+    app.router.add_post('/telemetry/conversation/path-probe', probe_conversation_paths)
     app.router.add_post('/telemetry/conversation/reveal', reveal_conversation_reference)
     app.router.add_get("/telemetry/messages", proxy_dashboard)
     app.router.add_get("/telemetry/graph", proxy_dashboard)

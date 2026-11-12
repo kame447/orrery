@@ -65,23 +65,27 @@ port は cockpit が 8791、Telemetry が 8770、Mail が 18765 です。`ORRERY
 
 ## できること
 
-### 会話を読み返す（Conversation history）
+### 会話を読み返す（Reader）
 
-代替画面を使う agent の会話は、端末のスクロールバックだけでは遡れません。Conversation history は、記録された会話を読み取り専用で表示します。pane の **HISTORY** を押してください。既定はオンです。**Settings → Appearance → Conversation history** をオフにするとパネルとボタンが消え、履歴の読み込みも止まります。
+代替画面を使う agent の会話は、端末のスクロールバックだけでは遡れません。Reader は、記録された会話を読み取り専用で表示します。pane の **Reader アイコン** を押してください。もう一度押すと閉じます。既定はオンです。**Settings → Appearance → Reader** をオフにするとパネルとボタンが消え、履歴の読み込みも止まります。
+
+pane の見出しと roster のカードは telemetry の表示用モデル名をそのまま使い、完全な ID は title に残します。見出しは provider のロゴ・agent 名・モデルの順で、モデルが不明なら省きます。active かつ作業中のロゴはゆっくり明暗し、返事待ちや動きを減らす設定では静止します。狭い pane ではモデルを名前より先に省略し、ロゴと操作ボタンを残します。分割 pane を閉じる × は、他の操作と同じ枠付きアイコンで見出しの一番右にあります。
 
 ![架空の会話を履歴パネルで開く](docs/images/cockpit_history.png)
 
-履歴は端末の横に開き、**Full width** で pane 全体に広げられます。狭い画面では pane 全体に表示します。スクロールしている間は新しい記録が来ても読んでいる位置を保ち、**Load earlier** がある場合は過去へ遡れます（1回で最大約300件。tool の呼び出しと結果も1件ずつ数えます。手元に置く量には上限（800件または 2 MiB）があり、遡って超えると新しい側を外して更新を止めます。**Latest** で最新に戻ります。最下部で新着を読んでいるときは古い側から外します）。**Latest** で最新に戻れます。開閉時に CLAIMED 端末のサイズは変わりません。分割中は各 pane の **HISTORY** で独立して開き、全幅や preview もその区画内に収まります。履歴を操作した pane が下の prompt 欄の送り先になります。別の pane を閉じても、残った pane の履歴の表示幅・読み位置・開いた Mail や preview は保たれます。幅が変わると読み位置が1〜2行ずれることがあります。
+履歴は端末の横に開き、pane 上部の **⤢** で pane 全体に広げ、もう一度押すと元の幅に戻せます。狭い画面では pane 全体に表示します。スクロールしている間は新しい記録が来ても読んでいる位置を保ち、**Load earlier** がある場合は過去へ遡れます（1回で最大約300件。tool の呼び出しと結果も1件ずつ数えます。手元に置く量には上限（800件または 2 MiB）があり、遡って超えると新しい側を外して更新を止めます。最下部で新着を読んでいるときは古い側から外します）。過去を読んでいるときだけ本文の右下に重ねて出る **↓（最新へ）** で最新に戻れます。CLAIMED では Reader を横に開くと端末を残りの幅に合わせ、閉じると元の幅に戻します。全幅では端末に重ねて表示します。FOLLOW では外部の端末の幅を保つため、一部が Reader に隠れます。分割中は各 pane の **Reader アイコン** で独立して開き、全幅や preview もその区画内に収まります。履歴を操作した pane が下の prompt 欄の送り先になります。別の pane を閉じても、残った pane の履歴の表示幅・読み位置・開いた Mail や preview は保たれます。幅が変わると読み位置が1〜2行ずれることがあります。
 
 ![2分割の各 pane で履歴を開く](docs/images/cockpit_history_split.png)
 
-全幅でも入力欄から送信できます。履歴を読むキーは端末に送られず、Enter または **SEND** で明示的に送ります。送信すると対象 pane の preview を閉じ、履歴は最新を追います。送信中に対象の端末や接続が変わった場合は中止して知らせます。送信後は、対象の履歴の末尾に「Sent → agent 名 · Awaiting record」の仮の行が現れ、対応する発言が記録されると置き換わります。これは agent が処理を確認したことを示すものではありません。照合できない場合は「Record not matched」と表示します。
+全幅でも入力欄から送信できます。履歴を読むキーは端末に送られず、Enter または **SEND** で明示的に送ります。送信すると対象 pane の preview を閉じ、履歴は最新を追います。送信中に対象の端末や接続が変わった場合は中止して知らせます。送信後は、対象の履歴の末尾に「Sent → agent 名 · Awaiting record」の仮の行が現れ、対応する発言が記録されると置き換わります。これは agent が処理を確認したことを示すものではありません。照合できない場合は「Record not matched」と表示し、**Dismiss** で仮の行を閉じられます。`! cmd` の送信は、記録されたシェルのコマンドとも照合します。
 
 ![送信後に履歴へ表示される記録待ちの行](docs/images/cockpit_history_pending.png)
 
 履歴の中身を見せる前には、必ず telemetry の dashboard でその agent の記録の対応を確かめます。記録が変わっていないという中身のない応答は、最後の確認から最大30秒、確かめずに返します。保持できるのは cockpit 全体で4本（1つのページでも最大4本）です。それを超えた pane は4秒ごとの読み込みになります（その後に通信・読み取り・描画の時間が加わります）。ただし、上限に達したときに記録が変わった pane は、2秒以上何も変わらずに保持している pane から枠を譲り受けます。譲った pane は4秒ごとの読み込みに戻ります。Hermes では、同じ state.db に別の session だけが書いた場合も記録が変わったと数えるので、中身の変わらない pane が枠を受け取ることがあります（そのとき、譲った pane は4秒ごとの読み込みになります）。利用者の操作の間は、どの tab でも保持をしません。操作がすべて終わった時点で保持に戻ります。操作として数えるのは、URL を開く・Finder や Explorer で表示する・Ghostty を開く・EXIT・spawn・記録の file の表示、clipboard の file の読み取り、file の preview、履歴の Load earlier と Retry、NETWORK の画面からの操作（jump・kill・EXIT・注記・spawn・再開）です。端末の path に mouse を重ねたときの確認、NETWORK の画面が自動で送る error 報告と、spawn の folder 一覧などの上に挙げていない GET は、利用者が押して始まったものでも数えません。操作は response の header が届いた時点で終わったと数えます（preview の本文を受け取っている間に保持が戻ることがあります）。操作は、自分の tab でも別の tab でも、90秒（dashboard が spawn に許す最長）を過ぎると数えるのをやめます。後から開いた tab は、開いたときに他の tab で進行中の操作を一度問い合わせます。NETWORK の画面が途中で移動したときは、その画面の操作をその時点で終わったと数えます。prompt の送信は WebSocket で送るので、保持とは接続を取り合いません。dashboard が API 36 以降なら、1人分を返す `/api/agents/<name>/history-binding` で確かめ、それより前の dashboard や、この route が使えないときは、従来どおり roster 全体で確かめます（[API](https://github.com/gyroid-eth/orrery-telemetry/blob/master/docs/api.md)）。
 
-agent の発言にある Markdown の表は表として表示し、横にスクロールできます。**Copy Markdown** で元の表をコピーできます。
+agent の発言は Markdown の見出し・太字・箇条書き・引用・inline code などを描きます。コードの塊は横にスクロールでき、**Copy** で改行や空白を含む中身をコピーできます。生の HTML は文字のまま表示し、Markdown の画像を取りには行きません。人が打った本文は文字のままです。表も横にスクロールでき、**Copy Markdown** で元の表をコピーできます。
+
+Claude の `!` の記録は **SHELL** と表示し、続くコマンドと出力を1つのまとまりにします。長い出力は短く表示し、**Show all** で開けます。slash command もコマンドと出力の塊として表示します。文字参照は認識した記録の中だけで戻し、コマンドもコピーできます。background task などの system 通知は、人の発言と区別した短い1行で表示し、押すと記録の詳細を開閉できます。Claude・Codex の compact の記録も **Context compacted** の1行になり、記録に読める要約がある場合は開いて読めます。セッションが変わったときは前の表示を消し、**New session** と表示して自動で読み直します。変化が続く場合は通常の間隔で確認し、Retry は不要です。
 
 ![agent の発言に含まれる表と Copy Markdown](docs/images/cockpit_history_table.png)
 
@@ -103,7 +107,7 @@ agent の発言にある Markdown の表は表として表示し、横にスク�
 
 表示できない場合は、パネルに理由と次の操作が表示されます。起動直後や最初の発言前なら少し待って再試行し、古い会話や紐付けを確認できない場合は新しい子を開いてください。Codex の記録が観測されない場合は ORRERY plugin を有効にして `/hooks` で確認し、新しく起動します。記録が無効・書き込み不可の場合は provider の記録設定や保存先を確認します。古い dashboard、未対応の形式、dsh の依存関係不足なども画面に案内されます。
 
-legacy では Codex と、Telemetry API 35 以降で紐付けを確認した Claude Code・dsh・Hermes を読めます。古い dashboard では Codex のみです。Claude・Codex・dsh は過去ページを読めます。dsh は記録された append の時系列、Hermes は現在の bound segment の直近 snapshot（最大200件）で、圧縮前の segment は含みません。fresh は保護された API の直近の本文 snapshot（最大200件、量の制限あり）で、過去ページと tool の要約には未対応です。保持上限で更新が止まったときは **Latest** で再開できます。端末から消えた代替画面の描画は復元できません。[操作と上限の詳細](bridge/README.md)
+legacy では Codex と、Telemetry API 35 以降で紐付けを確認した Claude Code・dsh・Hermes を読めます。古い dashboard では Codex のみです。Claude・Codex・dsh は過去ページを読めます。dsh は記録された append の時系列、Hermes は現在の bound segment の直近 snapshot（最大200件）で、圧縮前の segment は含みません。fresh は保護された API の直近の本文 snapshot（最大200件、量の制限あり）で、過去ページと tool の要約には未対応です。保持上限で更新が止まったときは、一番下までスクロールすると最新を読み直して追随を再開します。**↓（最新へ）** でも再開できます。端末から消えた代替画面の描画は復元できません。[操作と上限の詳細](bridge/README.md)
 
 ### 科学者の顔とモデルを選んで起動する（NEW AGENT）
 
@@ -387,5 +391,5 @@ ORRERY は ORRERY Telemetry、`tmux`、`xterm.js` などと連携します。こ
 
 不具合は GitHub repository の Issues へ報告してください。task 名、再現手順、ORRERY / ORRERY Telemetry の起動 log、`/telemetry/health` の結果を添えると切り分けが早くなります。
 
-split 中は各 pane の見出しに名前・状態と HISTORY / WINDOW をまとめます。
-ボタンはその見出しの pane が対象で、1 pane は従来の見出しのままです。
+split 中は各 pane の見出しに provider のロゴ・名前・モデルと Reader・全幅・別窓のアイコンをまとめます。
+ボタンはその見出しの pane が対象です。
