@@ -43,6 +43,29 @@
     .filter(model=>model&&model.id).map(model=>({provider,model,key:JSON.stringify([provider.id,model.id,
       ...(Number.isInteger(model.url_index)?[model.url_index]:[]),...(model.url_key?[model.url_key]:[])]),family:family(provider,model)})));}
   function value(provider,model,key){return model&&Object.hasOwn(model,key)?model[key]:provider[key];}
+  // Effort-qualified catalog IDs are launch IDs, not separate model families.
+  // Keep the original ID in each visible entry so the launch path stays valid.
+  function modelLabel(provider,model){
+    const id=String(model&&model.id||'');
+    if(!(provider&&provider.capabilities&&provider.capabilities.effort_required))return id;
+    for(const effort of Array.isArray(provider.efforts)?provider.efforts:[]){
+      if(typeof effort!=='string'||!effort)continue;
+      const suffix='-'+effort;
+      if(id.length>suffix.length&&id.endsWith(suffix))return id.slice(0,-suffix.length);
+    }
+    return id;
+  }
+  function displayModels(provider,models){
+    const rows=Array.isArray(models)?models:(provider&&provider.models)||[];
+    if(!(provider&&provider.capabilities&&provider.capabilities.effort_required))return rows;
+    const seen=new Set();
+    return rows.filter(model=>{
+      const label=modelLabel(provider,model);
+      if(seen.has(label))return false;
+      seen.add(label);
+      return true;
+    });
+  }
   function harnesses(provider,model){
     const supplied=value(provider,model,'harnesses');
     const fallback=provider.program||({claude:'claude-code',codex:'codex-cli'})[provider.id]||provider.id;
@@ -79,5 +102,5 @@
     if(!id||agent.category&&agent.category!=='agent')return null;
     return {id:key,...harnessInfo(id)};
   }
-  return {harnessKey,harnessInfo,unavailableReason,locality,family,entries,value,harnesses,helperModels,metadata,recent,remember,rosterHarness};
+  return {harnessKey,harnessInfo,unavailableReason,locality,family,entries,value,modelLabel,displayModels,harnesses,helperModels,metadata,recent,remember,rosterHarness};
 });

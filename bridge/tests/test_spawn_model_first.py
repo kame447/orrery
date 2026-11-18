@@ -54,6 +54,27 @@ def test_harness_availability_is_catalog_driven_including_future_tools():
     assert all(h['available'] for h in result['future'])
 
 
+def test_effort_qualified_models_group_without_changing_launch_ids():
+    models = [
+        'gemini-3.8-flash-high', 'gemini-3.8-flash-medium',
+        'gemini-3.8-flash-low', 'gemini-4-argon-medium',
+        'gemini-4-argon-high', 'gemini-4-hydrogen-xhigh',
+        'gemini-4-hydrogen-high', 'gemini-pro-orchestrator-g1-pro',
+    ]
+    provider = dict(id='gemini', capabilities=dict(effort_required=True),
+                    efforts=['low', 'medium', 'high', 'xhigh'],
+                    models=[dict(id=m) for m in models])
+    result = node('''const p=''' + json.dumps(provider) + ''';
+      const visible=picker.displayModels(p);
+      console.log(JSON.stringify({ids:visible.map(m=>m.id),
+        labels:visible.map(m=>picker.modelLabel(p,m)),
+        ordinary:picker.displayModels({...p,capabilities:{}},p.models).length}));''')
+    assert result['ids'] == [models[0], models[3], models[5], models[7]]
+    assert result['labels'] == ['gemini-3.8-flash', 'gemini-4-argon',
+                                'gemini-4-hydrogen', 'gemini-pro-orchestrator-g1-pro']
+    assert result['ordinary'] == len(models)
+
+
 def test_local_duplicates_have_distinct_identity_and_removed_recents_are_not_choices():
     result = node('''
       let stored='[]';const store={getItem:()=>stored,setItem:(k,v)=>{stored=v;}};
@@ -445,6 +466,53 @@ def test_own_null_effort_metadata_keeps_provider_default_unresolved(model,fields
     result=node('const SpawnPicker=picker;let selHarness="hermes",selEffort=null;'+functions+
         '\nconst p='+json.dumps(provider)+';console.log(JSON.stringify(effectiveSpawnEffort(p,"fixture")));')
     assert result is None
+
+
+def test_antigravity_picker_separates_model_family_and_effort(tour_browser):
+    _, evaluate = tour_browser
+    result = evaluate('''(()=>{
+      const ids=['gemini-3.8-flash-high','gemini-3.8-flash-medium','gemini-3.8-flash-low',
+        'gemini-4-argon-medium','gemini-4-argon-high',
+        'gemini-4-hydrogen-xhigh','gemini-4-hydrogen-high',
+        'gemini-pro-orchestrator-g1-pro'];
+      const modelEfforts=Object.fromEntries(ids.map(id=>[id,
+        id.includes('hydrogen')||id.endsWith('g1-pro')?['low','medium','high','xhigh']:['low','medium','high']]));
+      spawnCatalog={providers:[{
+        id:'gemini',label:'Antigravity',program:'antigravity',
+        capabilities:{effort_required:true},
+        models:ids.map((id,i)=>({id,default:i===0})),
+        efforts:['low','medium','high','xhigh'],model_efforts:modelEfforts,
+        harnesses:[{id:'antigravity',label:'antigravity',available:true,default:true}]
+      }],naming:{},dirs:[]};
+      selFamily='gemini';selProvider=null;selModel=null;selUrlIndex=null;selUrlKey=null;
+      selHarness=null;selEffort=null;renderProviderTabs();
+      const labels=[...modelChoices.querySelectorAll('.model-choice-name')].map(e=>e.textContent);
+      const before={disabled:spawnSubmit.disabled,payload:spawnPayloadFromForm(),
+        hint:document.getElementById('spawnHarnessHint').textContent,
+        summary:document.getElementById('spawnSummary').textContent};
+      const range=effortChoices.querySelector('input[type=range]');
+      range.value=0;range.dispatchEvent(new Event('input'));
+      const chosen={disabled:spawnSubmit.disabled,payload:spawnPayloadFromForm()};
+      const hydrogen=[...modelChoices.querySelectorAll('input[name=spawnModel]')]
+        .find(e=>e.value==='gemini-4-hydrogen-xhigh');
+      hydrogen.click();
+      return {labels,before,chosen,after:spawnPayloadFromForm(),
+        afterHint:document.getElementById('spawnHarnessHint').textContent,
+        sliderMax:effortChoices.querySelector('input[type=range]').max};
+    })()''')
+    assert result['labels'] == ['gemini-3.8-flash', 'gemini-4-argon',
+                                'gemini-4-hydrogen', 'gemini-pro-orchestrator-g1-pro']
+    assert result['before']['disabled']
+    assert 'effort' not in result['before']['payload']
+    assert result['before']['hint'] == 'For gemini-3.8-flash'
+    assert 'gemini-3.8-flash-high' not in result['before']['summary']
+    assert not result['chosen']['disabled']
+    assert result['chosen']['payload']['model'] == 'gemini-3.8-flash-high'
+    assert result['chosen']['payload']['effort'] == 'low'
+    assert result['after']['model'] == 'gemini-4-hydrogen-xhigh'
+    assert result['after']['effort'] == 'low'
+    assert result['afterHint'] == 'For gemini-4-hydrogen'
+    assert result['sliderMax'] == '3'
 
 
 def test_required_effort_requires_explicit_choice_before_button_and_post(tour_browser):

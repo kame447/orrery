@@ -10234,7 +10234,7 @@ function renderHarnesses(){
   spawnHarnesses.replaceChildren();
   const choices=p&&model?SpawnPicker.harnesses(p,model):[];
   if(!choices.some(h=>h.id===selHarness&&h.available))selHarness=(choices.find(h=>h.default&&h.available)||choices.find(h=>h.available)||{}).id||null;
-  document.getElementById('spawnHarnessHint').textContent=model?'For '+model.id:'Choose a model first';
+  document.getElementById('spawnHarnessHint').textContent=model?'For '+SpawnPicker.modelLabel(p,model):'Choose a model first';
   choices.forEach(h=>{
     const button=document.createElement('button');button.type='button';button.className='spawn-harness';
     button.dataset.harness=h.id;button.disabled=!h.available;button.classList.toggle('sel',h.id===selHarness);
@@ -10283,7 +10283,7 @@ function updateSpawnAvailability(){
 function renderSpawnSummary(){
   const p=providerById(selProvider),model=selectedSpawnModel(),summary=document.getElementById('spawnSummary');
   summary.replaceChildren();if(!p||!model)return;
-  const title=document.createElement('strong');title.textContent=model.display_name||model.id;summary.append(title);
+  const title=document.createElement('strong');title.textContent=p.capabilities?.effort_required?SpawnPicker.modelLabel(p,model):(model.display_name||model.id);summary.append(title);
   const h=SpawnPicker.harnesses(p,model).find(h=>h.id===selHarness);
   const effort=effortsForModel(p,selModel);
   const details=[SpawnPicker.metadata(p,model),h?(h.default?'':'Harness: '+h.label):'Harness: Unavailable',selEffort?'Effort: '+selEffort:effectiveSpawnEffort(p,selModel)?'Effort: Default ('+effectiveSpawnEffort(p,selModel)+')':effort.efforts||effort.source==='unknown'?'Effort: Default':'Effort: Not supported',
@@ -10335,7 +10335,7 @@ function splitOverflowModels(provider){
 }
 function renderModels(){
   const p=providerById(selProvider)||{models:[]};
-  const models=(p.models||[]).filter(m=>(m.locality||p.locality||'cloud')!=='local');
+  const models=SpawnPicker.displayModels(p,(p.models||[]).filter(m=>(m.locality||p.locality||'cloud')!=='local'));
   if(!selModel||!models.some(m=>m.id===selModel)){
     selModel=((models.find(m=>m.default)||models[0])||{}).id||null;
   }
@@ -10349,7 +10349,7 @@ function renderModels(){
     input.addEventListener('change',()=>{selModel=m.id;selHarness=null;renderHarnesses();});
     lab.className='model-choice';
     const copy=document.createElement('span');copy.className='model-choice-copy';
-    const name=document.createElement('span');name.className='model-choice-name';name.textContent=m.id;
+    const name=document.createElement('span');name.className='model-choice-name';name.textContent=SpawnPicker.modelLabel(p,m);
     copy.appendChild(name);
     lab.append(input,copy);
     if(m.badge){const b=document.createElement('span');b.className='model-badge';b.textContent=m.badge;lab.appendChild(b);}
