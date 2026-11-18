@@ -972,18 +972,34 @@ async def shared_session_list(tmux_bin) -> list[dict[str, Any]]:
     session that appears is still seen within that much of the ordinary beat.
     """
     key = tmux_bin if isinstance(tmux_bin, str) else id(tmux_bin)
-    now = time.monotonic()
-    shared = _session_list_shared.get(key)
-    if (
-        shared is None
-        or shared[1].get_loop() is not asyncio.get_running_loop()
-        or (shared[1].done() and now - shared[0] >= SESSION_LIST_SHARE_SECONDS)
-    ):
-        task = asyncio.ensure_future(asyncio.to_thread(list_tmux_sessions, tmux_bin))
-        _session_list_shared[key] = shared = (now, task)
-        # a failure is also shared for that long, but never kept beyond it
-        task.add_done_callback(lambda finished: finished.cancelled() or finished.exception())
-    return await asyncio.shield(shared[1])
+    while True:
+        now = time.monotonic()
+        shared = _session_list_shared.get(key)
+        if (
+            shared is None
+            or shared[1].get_loop() is not asyncio.get_running_loop()
+            or (shared[1].done() and now - shared[0] >= SESSION_LIST_SHARE_SECONDS)
+        ):
+            task = asyncio.ensure_future(asyncio.to_thread(list_tmux_sessions, tmux_bin))
+            _session_list_shared[key] = shared = (now, task)
+            # a failure is also shared for that long, but never kept beyond it
+            task.add_done_callback(lambda finished: finished.cancelled() or finished.exception())
+        try:
+            sessions = await asyncio.shield(shared[1])
+        except Exception:
+            if _session_list_shared.get(key) is not shared:
+                continue
+            raise
+        # A rebind can retire this entry while its subprocess is running.
+        # Existing waiters must also use the newly verified server's roster.
+        if _session_list_shared.get(key) is shared:
+            return sessions
+
+
+def invalidate_shared_session_list(tmux_bin) -> None:
+    key = tmux_bin if isinstance(tmux_bin, str) else id(tmux_bin)
+    # Leave an in-flight task alive for its shielded waiters; they will retry.
+    _session_list_shared.pop(key, None)
 
 
 def pane_tmux_session(tmux_bin: str, pane_id: str) -> str | None:
@@ -1189,6 +1205,8 @@ class SessionBridgeManager:
                     return_exceptions=True,
                 )
                 rebound = await asyncio.to_thread(boundary.rebind_server)
+                if rebound:
+                    invalidate_shared_session_list(boundary)
             if rebound:
                 print("ORRERY recorder revalidated a restarted tmux server",
                       file=sys.stderr, flush=True)

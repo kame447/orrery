@@ -7,12 +7,14 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from runtime_target import LegacyTargetBoundary, TargetRefused
 from orrery_backend import SessionBridgeManager
+import orrery_backend as ob
 
 
 @pytest.fixture
@@ -196,3 +198,60 @@ def test_recovery_errors_are_rate_limited(capsys):
     for _ in range(1000):
         manager._log_attach_error("same", TargetRefused("TMUX_SOCKET_CHANGED"))
     assert capsys.readouterr().err.count("TMUX_SOCKET_CHANGED") == 1
+
+
+@pytest.mark.parametrize("old_result", ["cached", "pending", "pending-error"])
+def test_rebound_server_replaces_shared_roster_for_all_waiters(monkeypatch, tmp_path, old_result):
+    boundary = object.__new__(LegacyTargetBoundary)
+    current = "before"
+    calls = []
+    started = threading.Event()
+    release = threading.Event()
+    rosters = {
+        name: [{"session": name, "created": created}]
+        for name, created in (("before", 1), ("after", 2))
+    }
+
+    def rebind():
+        nonlocal current
+        current = "after"
+        return True
+
+    def listing(target):
+        assert target is boundary
+        observed = current
+        calls.append(observed)
+        if observed == "before":
+            started.set()
+            if old_result != "cached":
+                assert release.wait(10), "old roster was not released"
+            if old_result == "pending-error":
+                raise OSError("retired tmux server")
+        return rosters[observed]
+
+    monkeypatch.setattr(boundary, "socket_replaced", lambda: current == "before")
+    monkeypatch.setattr(boundary, "rebind_server", rebind)
+    monkeypatch.setattr(ob, "list_tmux_sessions", listing)
+    monkeypatch.setattr(ob, "_session_list_shared", {})
+    # The old entry cannot expire on its own and conceal a missing invalidation.
+    monkeypatch.setattr(ob, "SESSION_LIST_SHARE_SECONDS", float("inf"))
+
+    async def scenario():
+        manager = SessionBridgeManager(boundary, history_dir=tmp_path)
+        first = asyncio.create_task(ob.shared_session_list(boundary))
+        try:
+            assert await asyncio.to_thread(started.wait, 10), "old roster did not start"
+            if old_result == "cached":
+                assert await first == rosters["before"]
+            assert await manager._recover_legacy_socket()
+            release.set()
+            assert await ob.shared_session_list(boundary) == rosters["after"]
+            if old_result != "cached":
+                assert await first == rosters["after"]
+            assert calls == ["before", "after"]
+        finally:
+            release.set()
+            await asyncio.gather(first, return_exceptions=True)
+            await manager.close()
+
+    asyncio.run(scenario())
