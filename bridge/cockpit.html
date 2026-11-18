@@ -41,6 +41,7 @@
     /* Engine hue for Google (Gemini / Antigravity) agents — not a lineage
        role, so it gets its own name instead of borrowing --ln-remote. */
     --theme-google-rgb:111 155 209;
+    --head-h:49px;          /* shared height of the three pane heading rows */
     --bg:#0b0d11;
     --panel:#111419;
     --panel-2:#161a21;
@@ -222,18 +223,17 @@
 
   .colhead{
     display:flex;align-items:center;justify-content:space-between;
-    padding:13px 16px 11px;
+    box-sizing:border-box;flex:none;height:var(--head-h);padding:0 16px;
     font-size:10px;letter-spacing:.32em;text-transform:uppercase;color:var(--ink-faint);
-    border-bottom:1px solid var(--hair-2);
+    border-bottom:1px solid var(--hair);
   }
   .colhead .tag{color:var(--ink-dim);letter-spacing:.04em;text-transform:none;font-size:11px}
   .colhead .actions{display:flex;align-items:center;gap:8px}
-  .roster-head{padding:11px 11px 10px 16px;min-height:49px}
+  .roster-head{padding:0 11px 0 16px}
   .roster-head .colhead-title{color:var(--ink-dim);letter-spacing:.28em}
   .roster-head .actions{gap:6px}
   .roster-status{max-width:92px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .roster-status[hidden]{display:none}
-  .roster-head .new-agent{margin-left:4px}
   button,input,select,textarea{font:inherit}
   button{color:inherit}
   .new-agent{
@@ -252,6 +252,16 @@
   .roster-select:hover,.roster-select:focus-visible{border-color:var(--amber);color:var(--amber);outline:none}
   .roster-select.on{border-color:var(--amber);background:var(--amber);color:var(--bg)}
   .roster-select:disabled{opacity:.45;cursor:wait}
+  /* Heading buttons share the tab's 10px corner and a 30px height. */
+  .roster-head .roster-select,.roster-head .new-agent{
+    height:30px;box-sizing:border-box;padding:0 10px;border-radius:10px;
+    font-size:10px;letter-spacing:.04em;text-transform:none;white-space:nowrap;flex:none}
+  .roster-head .colhead-title{white-space:nowrap;margin-right:6px}
+  .roster-head .actions{min-width:0}
+  .roster-head .roster-status{flex:0 1 auto;min-width:0}
+  .roster-head .roster-select{background:var(--panel-2)}
+  .roster-head .new-agent{background:rgb(var(--theme-accent-rgb) / .08);border-color:rgb(var(--theme-accent-rgb) / .38)}
+  .roster-head .new-agent:hover,.roster-head .new-agent:focus-visible{background:var(--amber-glow)}
 
   /* ── agent tiles ────────────────────────── */
   .roster-filter{padding:9px 10px 0}
@@ -497,14 +507,17 @@
   /* ── terminal cockpit ──────────────────── */
   .term{display:flex;flex-direction:column;min-height:0;background:
     radial-gradient(ellipse 100% 70% at 50% 0%, rgba(28,33,42,.55), transparent 70%),var(--bg)}
-  .tabstrip{position:relative;flex:0 0 auto;min-width:0;border-bottom:1px solid var(--hair)}
+  .tabstrip{position:relative;flex:0 0 auto;min-width:0;box-sizing:border-box;height:var(--head-h);border-bottom:1px solid var(--hair)}
+  /* The strip's rule is 1px; .tabs is as tall as the whole heading and sits
+     over it, so the selected tab can join the page below. */
   .tabs{
-    display:flex;flex-wrap:nowrap;align-items:stretch;gap:6px;padding:8px 58px 0 12px;
-    overflow-x:auto;overflow-y:hidden;min-height:43px;scroll-behavior:smooth;scrollbar-width:none;
+    position:relative;z-index:1;
+    display:flex;flex-wrap:nowrap;align-items:flex-end;gap:2px;padding:0 58px 0 12px;
+    overflow-x:auto;overflow-y:hidden;height:var(--head-h);margin-bottom:-1px;scroll-behavior:smooth;scrollbar-width:none;
   }
   .tabs::-webkit-scrollbar{display:none}
   .split-chip{
-    align-self:center;flex:0 0 auto;margin:0 2px 7px 0;padding:4px 8px;border:1px solid var(--hair);
+    align-self:center;flex:0 0 auto;margin:0 2px 0 0;padding:4px 8px;border:1px solid var(--hair);
     border-radius:10px;background:var(--panel-2);color:var(--amber);font-family:var(--mono);
     font-size:9px;letter-spacing:.08em;cursor:pointer;
   }
@@ -514,7 +527,7 @@
   .layout-chip[aria-expanded="true"]{border-color:rgb(var(--theme-accent-rgb) / .45);color:var(--amber)}
   .split-chip[hidden]{display:none}
   .layout-picker{
-    position:absolute;z-index:20;top:40px;min-width:178px;padding:6px;
+    position:absolute;z-index:20;top:46px;min-width:178px;padding:6px;
     border:1px solid rgba(255,255,255,.1);border-top-color:rgb(var(--theme-accent-rgb) / .48);
     border-radius:8px;background:rgba(13,15,20,.9);
     backdrop-filter:blur(18px) saturate(1.1);-webkit-backdrop-filter:blur(18px) saturate(1.1);
@@ -549,17 +562,18 @@
   .tab-fade.left{left:0;background:linear-gradient(90deg,var(--bg),transparent)}
   .tab-fade.right{right:0;background:linear-gradient(270deg,var(--bg),transparent)}
   .tab-overflow{
-    display:none;position:absolute;z-index:5;right:10px;top:11px;min-width:31px;padding:3px 7px;
+    display:none;position:absolute;z-index:5;right:10px;top:calc((var(--head-h) - 1px) / 2);transform:translateY(-50%);min-width:31px;padding:3px 7px;
     border:1px solid var(--hair);border-radius:10px;background:var(--panel-2);
     color:var(--ink-dim);font-size:9.5px;letter-spacing:.04em;text-align:center;pointer-events:none;
   }
   .tab-overflow.on{display:block}
-  .session-group{display:flex;align-items:stretch;gap:2px;padding-right:6px;border-right:1px solid var(--hair);flex:0 0 auto}
-  .session-group:last-of-type{border-right:0}
+  .session-group{display:flex;align-items:stretch;gap:2px;height:calc(var(--head-h) - 5px);padding-right:0;flex:0 0 auto}
   .session-label{
-    display:flex;align-items:center;gap:6px;padding:8px 9px 8px 6px;color:var(--ink-faint);
-    font-family:var(--serif);font-size:11px;white-space:nowrap;cursor:pointer;
+    display:flex;align-items:center;gap:6px;box-sizing:border-box;padding:0 14px 7px 11px;
+    border:1px solid transparent;border-bottom:0;border-radius:10px 10px 0 0;
+    color:var(--ink-faint);font-family:var(--serif);font-size:11px;white-space:nowrap;cursor:pointer;
   }
+  .session-label:hover{background:rgb(var(--theme-ink-rgb) / .04)}
   .session-label:hover,.session-group.live .session-label{color:var(--ink-dim)}
   .session-label.split-member{color:var(--ink)}
   .session-label .session-state{font-family:var(--mono);font-size:8px;color:var(--amber);letter-spacing:.08em}
@@ -571,13 +585,12 @@
   /* solo session (one pane): hide the redundant per-pane tab; the label IS
      the tab. Active pane state moves onto the label (amber underline). */
   .session-group.solo .session-panes{display:none}
-  .session-label.active-session{color:var(--ink)}
-  .session-label.active-session .session-name{box-shadow:inset 0 -2px 0 var(--amber)}
+  .session-label.active-session{color:var(--ink);background:var(--panel);border-color:var(--hair);box-shadow:0 -1px 0 var(--amber)}
   .session-ava{width:16px;height:16px;border-radius:50%;align-self:center;
     margin-right:1px;background:#24282f}
-  .session-panes .empty{padding:9px 5px}
+  .session-panes .empty{padding:0 5px 5px;align-self:center}
   .tab{
-    display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px 8px 0 0;
+    display:flex;align-items:center;gap:8px;padding:0 14px 5px;border-radius:10px 10px 0 0;
     font-size:11.5px;color:var(--ink-dim);cursor:pointer;white-space:nowrap;
     border:1px solid transparent;border-bottom:none;transition:.2s;
   }
@@ -589,7 +602,7 @@
   .tab .x{color:var(--ink-faint);font-size:13px;margin-left:2px}
   .tab .x.guarded{display:none}
   .tab .x:hover{color:var(--amber)}
-  .tabs .empty{color:var(--ink-faint);font-size:11px;padding:9px 4px;letter-spacing:.04em}
+  .tabs .empty{color:var(--ink-faint);font-size:11px;padding:0 4px 17px;letter-spacing:.04em}
 
   .screen{flex:1;min-height:0;position:relative;margin:14px;border-radius:12px;overflow:hidden;
     background:#0a0c10;border:1px solid var(--hair);
@@ -823,16 +836,15 @@
     .termhost:not(.app-scroll) .xterm-viewport{
       z-index:3;clip-path:inset(0 0 0 calc(100% - 14px))}
   }
-  .termhost .xterm-viewport::-webkit-scrollbar-track{
-    background:rgb(var(--theme-ink-rgb) / .06)}
+  /* Same look as the global scrollbar (9px / thumb alpha / 2px border / 6px
+     radius, colours come from the global rule and the light theme): the thumb
+     is drawn 5px wide inside the 14px grab gutter. */
+  .termhost .xterm-viewport::-webkit-scrollbar-track{background:transparent}
   .termhost .xterm-viewport::-webkit-scrollbar-thumb{
-    min-height:24px;background:rgb(var(--theme-ink-rgb) / .4);
-    border:2px solid transparent;border-radius:7px;background-clip:padding-box}
-  .termhost .xterm-viewport::-webkit-scrollbar-thumb:hover{
-    background:rgb(var(--theme-ink-rgb) / .6);background-clip:padding-box}
+    min-height:24px;border:2px solid transparent;border-left-width:5px;border-right-width:4px;border-radius:6px}
   @supports not selector(::-webkit-scrollbar){
     .termhost .xterm-viewport{
-      scrollbar-color:rgb(var(--theme-ink-rgb) / .4) rgb(var(--theme-ink-rgb) / .06)}
+      scrollbar-color:rgb(var(--theme-ink-rgb) / .1) transparent}
   }
   /* In an alternate-screen app the wheel scrolls the app (mouse reports or
      PageUp/Down), not xterm history. A late viewer can still have a normal
@@ -1159,6 +1171,7 @@
   @keyframes blinkring{50%{border-color:transparent}}
   @keyframes spin{to{transform:rotate(360deg)}}
   @keyframes breathe{0%,100%{opacity:1}50%{opacity:.4}}
+  html.page-hidden *,html.page-hidden *::before,html.page-hidden *::after{animation-play-state:paused !important}
   @keyframes bulkarm{0%,100%{box-shadow:0 0 0 0 rgb(var(--theme-accent-rgb) / .08)}50%{box-shadow:0 0 0 4px rgb(var(--theme-accent-rgb) / .18)}}
   /* ── pane windows: a session out of the cockpit ── */
   /* the page itself in solo mode: only the terminal and its composer */
@@ -1707,7 +1720,7 @@
           {
             "property": "border-bottom",
             "selector": ".colhead",
-            "value": "1px solid var(--hair-2)"
+            "value": "1px solid var(--hair)"
           },
           {
             "property": "color",
@@ -1748,6 +1761,11 @@
             "property": "color",
             "selector": ".roster-select.on",
             "value": "var(--bg)"
+          },
+          {
+            "property": "background",
+            "selector": ".roster-head .roster-select",
+            "value": "var(--panel-2)"
           },
           {
             "property": "border",
@@ -2175,11 +2193,6 @@
             "value": "var(--ink-dim)"
           },
           {
-            "property": "border-right",
-            "selector": ".session-group",
-            "value": "1px solid var(--hair)"
-          },
-          {
             "property": "color",
             "selector": ".session-label",
             "value": "var(--ink-faint)"
@@ -2203,6 +2216,16 @@
             "property": "color",
             "selector": ".session-label.active-session",
             "value": "var(--ink)"
+          },
+          {
+            "property": "background",
+            "selector": ".session-label.active-session",
+            "value": "var(--panel)"
+          },
+          {
+            "property": "border-color",
+            "selector": ".session-label.active-session",
+            "value": "var(--hair)"
           },
           {
             "property": "color",
@@ -3483,7 +3506,7 @@
         "unit": "computed-target"
       },
       "mutation": {
-        "digest": "2f4d9ea5b70a7dd450f9ecd56c5f16f45453cf18b75cbe21d0ed71d483dd3754",
+        "digest": "68b836989ba046086954b62542f97b59f68102e0a6369c18c2cb6ab7c6dad107",
         "records": [
           ":root[data-theme-axis=\"background\"]\u0000--bg",
           ":root[data-theme-axis=\"background\"]\u0000--panel",
@@ -3498,7 +3521,7 @@
         "unit": "token-write"
       },
       "source": {
-        "digest": "2f4d9ea5b70a7dd450f9ecd56c5f16f45453cf18b75cbe21d0ed71d483dd3754",
+        "digest": "68b836989ba046086954b62542f97b59f68102e0a6369c18c2cb6ab7c6dad107",
         "records": [
           ":root[data-theme-axis=\"background\"]\u0000--bg",
           ":root[data-theme-axis=\"background\"]\u0000--panel",
@@ -4225,7 +4248,7 @@
         "unit": "computed-target"
       },
       "mutation": {
-        "digest": "dd5980349433647efd14a9698c7337195efc517b9243646b12962503f536c3f7",
+        "digest": "523e1677c8f12259f2eae922b79d185978ba5935c2fe77bb3110856ad8e77f9f",
         "records": [
           ":root[data-theme-axis=\"dim-contrast\"]\u0000--ink-dim",
           ":root[data-theme-axis=\"dim-contrast\"]\u0000--ink-faint"
@@ -4233,7 +4256,7 @@
         "unit": "token-write"
       },
       "source": {
-        "digest": "dd5980349433647efd14a9698c7337195efc517b9243646b12962503f536c3f7",
+        "digest": "523e1677c8f12259f2eae922b79d185978ba5935c2fe77bb3110856ad8e77f9f",
         "records": [
           ":root[data-theme-axis=\"dim-contrast\"]\u0000--ink-dim",
           ":root[data-theme-axis=\"dim-contrast\"]\u0000--ink-faint"
@@ -4353,7 +4376,7 @@
         "unit": "effect-component"
       },
       "source": {
-        "digest": "5d50adc01bb98e3136d6d7e0e4170dbbcdcd73611913f6db4eda6642813796f4",
+        "digest": "e505204581e87036ac52ce863273784947e7c34e6c558bfb76ffc16cd0ad599e",
         "records": [
           ":root\u0000--amber-glow",
           ".miniorrery.telemetry-network\u0000background",
@@ -4374,7 +4397,7 @@
           ".agent-detail\u0000box-shadow",
           ".term\u0000background",
           ".layout-picker\u0000box-shadow",
-          ".session-label.active-session .session-name\u0000box-shadow",
+          ".session-label.active-session\u0000box-shadow",
           ".tab.on\u0000box-shadow",
           ".tab.on .led\u0000box-shadow",
           ".tab.active-pane .led\u0000box-shadow",
@@ -4417,7 +4440,7 @@
         "unit": "element"
       },
       "source": {
-        "digest": "b2e39210f4d259378a637873825f14b1234d3a2e8ae6f46b6dcec9b609d83db0",
+        "digest": "fa069e72e51d5a9402aa4fd46ec36e0043de268e02e2e7a02e139ddc11d2cd65",
         "records": [
           ".topstat\u0000font-size",
           ".need-chip\u0000font-size",
@@ -4426,6 +4449,7 @@
           ".colhead .tag\u0000font-size",
           ".new-agent\u0000font-size",
           ".roster-select\u0000font-size",
+          ".roster-head .roster-select,.roster-head .new-agent\u0000font-size",
           ".roster-filter input\u0000font-size",
           ".roster-filter-status\u0000font-size",
           ".roster-edit label\u0000font-size",
@@ -4571,7 +4595,7 @@
         "unit": "element"
       },
       "source": {
-        "digest": "a3812f73187e7b1c4d32678680d1dd1f5ebc2a0b951bb9d23d3407109e61ccc3",
+        "digest": "d69a0ad554593a88bfdebea29c5bed4aad3f274f61c9ca5a11f7bd29bf636ae4",
         "records": [
           ".colhead\u0000letter-spacing",
           ".roster-head .colhead-title\u0000letter-spacing",
@@ -4620,9 +4644,9 @@
       }
     }
   },
-  "inventory_digest": "06bf63872e7f0482bf264e6cb10c17394954acaa456aaddde527451ae7f11752",
+  "inventory_digest": "3eb9dc0d79518cc1e67cf7c2d966a7d5898c203ed8eb1648fc243a0735efe31e",
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "d710bd5b90ccce00fb6462cba0fbe1f6f97df0b897959c6aa4d8b0a9a14cb5fd",
+  "source_digest": "22f47efeabb62ee62a5ed537727388cf38b331ff4a8cb79129aacfb1798dcab8",
   "surface": "cockpit",
   "version": 1
 }
@@ -5446,7 +5470,7 @@ const THEME_GLOW_EFFECT_MANIFEST=Object.freeze([
   ['.agent-detail','box-shadow',['elevation'],'preserve'],
   ['.term','background',['elevation'],'preserve'],
   ['.layout-picker','box-shadow',['elevation','emissive'],'scale','html[data-theme-axis="glow"] .layout-picker'],
-  ['.session-label.active-session .session-name','box-shadow',['state'],'preserve'],
+  ['.session-label.active-session','box-shadow',['state'],'preserve'],
   ['.tab.on','box-shadow',['state'],'preserve'],
   ['.tab.on .led','box-shadow',['state','emissive'],'scale','html[data-theme-axis="glow"] .tab.on .led'],
   ['.tab.active-pane .led','box-shadow',['state','emissive'],'scale','html[data-theme-axis="glow"] .tab.active-pane .led'],
@@ -6475,6 +6499,7 @@ applyThemeAxisState({broadcast:false});
 function setLink(state,label){linkDot.className='dot '+state;linkText.textContent=label;
   const stat=document.getElementById('linkStat');if(stat)stat.hidden=(state==='open');}
 let readerApproval=null;
+let readerActivity=null;
 function send(payload){
   if(!socket||socket.readyState!==WebSocket.OPEN)return false;
   socket.send(JSON.stringify(payload));return true;
@@ -7110,6 +7135,7 @@ function writePaneOutput(pane,msg){
     if(token!==null)endPaneSnapshot(pane,token);
     else stickFollowHost(pane);
     relandAfterBufferReset(pane);
+    readerActivity?.observe(pane);
   });
 }
 /* A CLI that reflows after a resize clears the buffer and reprints its whole
@@ -7754,7 +7780,7 @@ function createPane(session,meta){
   });
   group.paneTabs.appendChild(tab);
   const paneRec={session,meta:normalized,term,fit,host,tab,bottomJump,_xtermAtBottom:true};
-  term.onWriteParsed(()=>queueMicrotask(()=>readerApproval?.observe(paneRec,true)));
+  term.onWriteParsed(()=>queueMicrotask(()=>{readerApproval?.observe(paneRec,true);readerActivity?.observe(paneRec);}));
   panes.set(meta.paneId,paneRec);
   terminalHostResizeObserver.observe(host);
   setCodexWheelModes(paneRec,normalized);installCodexWheel(paneRec);
@@ -8835,6 +8861,7 @@ function connect(){
   nextSocket.addEventListener('close',()=>{
     if(socket!==nextSocket)return;
     readerApproval?.disconnected();
+    readerActivity?.disconnected();
     attachedSessions.clear();requestedSessions.clear();
     sessionGroups.forEach((_,session)=>setGroupState(session,'closed'));
     refreshHeaderStats();setLink('closed','disconnected');scheduleReconnect();
@@ -9165,13 +9192,19 @@ function paintProviderLogo(logo,agent){
   return {provider,local};
 }
 function paintAgentPortrait(face,name){
-  face.querySelector('.ini').textContent=(name[0]||'?');
+  setText(face.querySelector('.ini'),name[0]||'?');
   const img=face.querySelector('img');
   const src='/telemetry/portrait?v=4&name='+encodeURIComponent(name)+'&hi=1';
   if(img.getAttribute('src')!==src){img.style.display='';img.src=src;img.onerror=()=>{img.style.display='none';};}
 }
 function conversationAvatar(name,model,existing=null){
   if(!name)return null;
+  const roster=currentAgentNamed(name)||{name};
+  // A recorded model can belong to a different maker than today's roster.
+  const identity=model?{...roster,provider:rosterIsLocal(roster)?'local':'',model,model_raw:model}:roster;
+  const presentation=providerPresentation(identity);
+  const signature=JSON.stringify([name,presentation.provider?.asset,presentation.text,presentation.cls,Boolean(presentation.local)]);
+  if(existing?.dataset.readerIdentity===signature)return existing;
   const avatar=existing||document.createElement('span');
   if(!existing){
     avatar.className='medal conversation-avatar';avatar.setAttribute('aria-hidden','true');
@@ -9183,10 +9216,8 @@ function conversationAvatar(name,model,existing=null){
     const pill=document.createElement('span');pill.className='pill eng';pill.hidden=true;avatar.append(face,badge,pill);
   }
   paintAgentPortrait(avatar.querySelector('.face'),name);
-  const roster=currentAgentNamed(name)||{name};
-  // A recorded model can belong to a different maker than today's roster.
-  const identity=model?{...roster,provider:rosterIsLocal(roster)?'local':'',model,model_raw:model}:roster;
   paintRosterProvider(avatar,identity);avatar.querySelector('.pill.eng').hidden=true;
+  avatar.dataset.readerIdentity=signature;
   return avatar;
 }
 function conversationPeerAvatar(name,existing=null){
@@ -9223,11 +9254,11 @@ function paintRosterProvider(el,agent){
     rim.appendChild(svgEl('polygon',{points:'50,4 90,27 90,73 50,96 10,73 10,27'}));
     badge.prepend(rim);
   }else if(!local&&rim){rim.remove();image.hidden=false;}
-  pill.className='pill eng '+cls;pill.textContent=text;
+  setClassName(pill,'pill eng '+cls);setText(pill,text);
   if(local){
-    badge.hidden=false;pill.hidden=true;badge.title=text;image.hidden=!provider;
+    setHidden(badge,false);setHidden(pill,true);setTitle(badge,text);setHidden(image,!provider);
     if(!provider){image.onload=null;image.onerror=null;image.removeAttribute('src');image.alt='';image.removeAttribute('title');return;}
-    image.alt=text;image.title=text;
+    if(image.alt!==text)image.alt=text;setTitle(image,text);
     image.onload=()=>{image.hidden=false;};
     image.onerror=()=>{image.hidden=true;};
     const src='cockpit-assets/'+provider.asset+'.svg';
@@ -9235,9 +9266,9 @@ function paintRosterProvider(el,agent){
     else if(image.complete&&!image.naturalWidth)image.hidden=true;
     return;
   }
-  badge.hidden=!provider;pill.hidden=!!provider;
+  setHidden(badge,!provider);setHidden(pill,!!provider);
   if(!provider){image.onload=null;image.onerror=null;image.removeAttribute('src');image.alt='';image.removeAttribute('title');badge.removeAttribute('title');return;}
-  badge.title=provider.label;image.alt=provider.label;image.title=provider.label;
+  setTitle(badge,provider.label);if(image.alt!==provider.label)image.alt=provider.label;setTitle(image,provider.label);
   const src='cockpit-assets/'+provider.asset+'.svg';
   image.onload=()=>{badge.hidden=false;pill.hidden=true;};
   image.onerror=()=>{badge.hidden=true;pill.hidden=false;};
@@ -9246,7 +9277,10 @@ function paintRosterProvider(el,agent){
 }
 function paintRosterHarness(el,agent){
   const chip=el.querySelector('.roster-harness');if(!chip)return;
-  const h=SpawnPicker.rosterHarness(agent);chip.replaceChildren();chip.hidden=!h;if(!h)return;
+  const h=SpawnPicker.rosterHarness(agent);
+  const harnessKey=h?h.id+'|'+h.label+'|'+(h.asset||''):'';
+  if(chip.dataset.harnessKey===harnessKey)return;chip.dataset.harnessKey=harnessKey;
+  chip.replaceChildren();chip.hidden=!h;if(!h)return;
   if(h.asset){const image=document.createElement('img');image.src='cockpit-assets/'+h.asset;image.alt='';
     if(['hermes','dsh'].includes(h.id))image.className='harness-art';chip.append(image);}
   chip.append(document.createTextNode(h.label));chip.title='Harness: '+h.label;
@@ -9354,12 +9388,12 @@ function clearBulkExitArm(){
 }
 function updateRosterBulkUI(){
   const count=bulkSelectedAgents.size;
-  rosterBulkBar.hidden=count===0;
-  rosterBulkCount.textContent=`${count} selected`;
-  rosterBulkExit.textContent=bulkExitBusy?'Exiting…':
-    bulkExitArmed?`Confirm Exit (${count})`:'Exit';
-  rosterBulkExit.disabled=bulkExitBusy||count===0;
-  rosterSelectBtn.disabled=bulkExitBusy;
+  setHidden(rosterBulkBar,count===0);
+  setText(rosterBulkCount,`${count} selected`);
+  setText(rosterBulkExit,bulkExitBusy?'Exiting…':
+    bulkExitArmed?`Confirm Exit (${count})`:'Exit');
+  if(rosterBulkExit.disabled!==(bulkExitBusy||count===0))rosterBulkExit.disabled=bulkExitBusy||count===0;
+  if(rosterSelectBtn.disabled!==bulkExitBusy)rosterSelectBtn.disabled=bulkExitBusy;
 }
 function setRosterSelectMode(on){
   if(on)rosterEditor.close(false);
@@ -9441,11 +9475,11 @@ let needOnly=false;
 function renderCrewCounts(live){
   const running=live.filter(a=>a.running);
   const need=running.filter(agentNeedsYou).length;
-  document.getElementById('needCount').textContent=need;
-  document.getElementById('crewWork').textContent=running.filter(a=>a.act_state==='work').length;
-  document.getElementById('crewWait').textContent=running.filter(a=>a.act_state==='wait').length;
+  setText(document.getElementById('needCount'),need);
+  setText(document.getElementById('crewWork'),running.filter(a=>a.act_state==='work').length);
+  setText(document.getElementById('crewWait'),running.filter(a=>a.act_state==='wait').length);
   const chip=document.getElementById('needChip');
-  chip.hidden=need===0;
+  setHidden(chip,need===0);
   if(!need&&needOnly){needOnly=false;chip.setAttribute('aria-pressed','false');}
 }
 function applyRosterFilter(){
@@ -9550,6 +9584,18 @@ function bindAgentDetail(el){
 window.addEventListener('resize',()=>{if(detailAnchor)positionAgentDetail(detailAnchor);});
 rosterEl.addEventListener('scroll',()=>{if(detailAnchor)positionAgentDetail(detailAnchor);},{passive:true});
 
+/* Writes that skip a value the node already has. A roster poll that finds
+   nothing changed (most rows, most of the time) then leaves the DOM alone:
+   assigning the same text replaces the text node, and even an equal attribute
+   write is a mutation the browser has to look at, so doing it for every row
+   every 3 s kept style and layout work running for nothing. */
+function setText(node,value){value=String(value);if(node.textContent!==value)node.textContent=value;}
+function setClassName(node,value){if(node.className!==value)node.className=value;}
+function setAttr(node,name,value){value=String(value);if(node.getAttribute(name)!==value)node.setAttribute(name,value);}
+function setHidden(node,hidden){hidden=!!hidden;if(node.hidden!==hidden)node.hidden=hidden;}
+function setTitle(node,value){value=String(value);if(node.title!==value)node.title=value;}
+function setBox(node,name,value){value=String(value);if(node.style.getPropertyValue(name)!==value)node.style.setProperty(name,value);}
+
 function tileFor(a){
   let el=tiles.get(a.name);
   if(!el){
@@ -9587,30 +9633,34 @@ function tileFor(a){
 
 function paintTile(el,a){
   const act=ACT[a.act_state]||ACT.wait;
-  el.className='agent '+(a.running?act.cls:'')+(a.name===selectedAgent?' sel':'');
+  // only the classes this function owns are set, so the others a tile carries
+  // (pinned, filtered-out, bulk-*) stay as they are and an unchanged row writes nothing
+  {const own=a.running?act.cls:'';
+   ['working','ask','question'].forEach(c=>el.classList.toggle(c,c===own));
+   el.classList.toggle('sel',a.name===selectedAgent);}
   // Roster rings are neutral (2026-07-30 product decision: lineage hue in a flat list
   // reads as random color noise — lineage color lives in the graph views,
   // where the tree gives it meaning).
-  el.querySelector('.face').style.removeProperty('--lineage-ring');
+  {const face=el.querySelector('.face');if(face.style.getPropertyValue('--lineage-ring'))face.style.removeProperty('--lineage-ring');}
   paintAgentPortrait(el.querySelector('.face'),a.name);
-  el.querySelector('.cname').textContent=a.name;
+  setText(el.querySelector('.cname'),a.name);
   paintRosterProvider(el,a);paintRosterHarness(el,a);
   const modelLabel=paneHeadingModel(a),modelPill=el.querySelector('.pill.model');
-  modelPill.textContent=(modelLabel.text||a.model_raw||a.cmd||'—')+(a.ctx_window?(' · '+a.ctx_window):'');
-  modelPill.title=modelLabel.title||a.model_raw||a.cmd||'';
+  setText(modelPill,(modelLabel.text||a.model_raw||a.cmd||'—')+(a.ctx_window?(' · '+a.ctx_window):''));
+  setTitle(modelPill,modelLabel.title||a.model_raw||a.cmd||'');
   const descriptor=a.descriptor||RosterDescriptor.deriveRosterDescriptor(a,currentAgents);
   const secondary=descriptor.secondary;
-  const rolePill=el.querySelector('.pill.role');rolePill.hidden=!secondary;rolePill.textContent=secondary;
+  const rolePill=el.querySelector('.pill.role');setHidden(rolePill,!secondary);setText(rolePill,secondary);
   const ctxEl=el.querySelector('.ctx'),fill=el.querySelector('.fill'),pct=el.querySelector('.pct');
-  if(typeof a.ctx_used==='number'){ctxEl.classList.remove('none');fill.style.width=a.ctx_used+'%';
-    fill.classList.toggle('hot',a.ctx_used>65);pct.textContent=a.ctx_used+'%';}
-  else{ctxEl.classList.add('none');fill.style.width='0%';pct.textContent='—';}
-  el.querySelector('.glyph').textContent=act.glyph;
-  el.querySelector('.statetext').textContent=descriptor.primary;
-  el.querySelector('.statetext').title=OrreryRosterEdit.taskTitle(a);
+  if(typeof a.ctx_used==='number'){if(ctxEl.classList.contains('none'))ctxEl.classList.remove('none');setBox(fill,'width',a.ctx_used+'%');
+    fill.classList.toggle('hot',a.ctx_used>65);setText(pct,a.ctx_used+'%');}
+  else{if(!ctxEl.classList.contains('none'))ctxEl.classList.add('none');setBox(fill,'width','0%');setText(pct,'—');}
+  setText(el.querySelector('.glyph'),act.glyph);
+  setText(el.querySelector('.statetext'),descriptor.primary);
+  setTitle(el.querySelector('.statetext'),OrreryRosterEdit.taskTitle(a));
   const updated=el.querySelector('.descriptor-updated');
   const updatedAt=descriptorTaskState[a.name]&&descriptorTaskState[a.name].updatedAt;
-  updated.hidden=!updatedAt;updated.textContent=updatedAt?`updated ${relTime(updatedAt/1000)} ago`:'';
+  setHidden(updated,!updatedAt);setText(updated,updatedAt?`updated ${relTime(updatedAt/1000)} ago`:'');
   paintPinnedTileState(el,a.name);
   el.classList.toggle('filtered-out',!rosterNameMatches(a.name,rosterFilter.value,currentAgents));
   paintBulkTileState(el,a);
@@ -9621,15 +9671,15 @@ function persistPinnedAgents(){
 }
 function paintPinnedTileState(el,name){
   const pinned=pinnedAgents.has(name),button=el.querySelector('.pin-toggle');
-  el.classList.toggle('pinned',pinned);el.dataset.pinned=String(pinned);
-  button.setAttribute('aria-pressed',String(pinned));
-  button.setAttribute('aria-label',`${pinned?'Unpin':'Pin'} ${name}`);
-  button.title=`${pinned?'Unpin':'Pin'} ${name}`;
+  el.classList.toggle('pinned',pinned);if(el.dataset.pinned!==String(pinned))el.dataset.pinned=String(pinned);
+  setAttr(button,'aria-pressed',pinned);
+  setAttr(button,'aria-label',`${pinned?'Unpin':'Pin'} ${name}`);
+  setTitle(button,`${pinned?'Unpin':'Pin'} ${name}`);
 }
 function paintPinnedBoundary(){
   let lastPinned=null,hasVisibleUnpinned=false;
   [...rosterEl.querySelectorAll(':scope > .agent')].forEach(el=>{
-    el.classList.remove('pinned-boundary');
+    el.classList.toggle('pinned-boundary',false);   // toggle writes nothing when the class is already absent
     if(el.classList.contains('filtered-out'))return;
     if(pinnedAgents.has(el.dataset.agent))lastPinned=el;
     else hasVisibleUnpinned=true;
@@ -10898,16 +10948,20 @@ function composerTargetPresent(target){
 }
 let promptSubmissionSequence=0;
 let promptAttemptSequence=0;
+let readerReply=null;
 function sendPrompt(opts){
   const bypass=opts&&opts.bypassGuard;
-  const text=promptInput.value;
-  if(!text.trim())return;
+  const draft=promptInput.value;
+  if(!draft.trim())return;
   const target=captureComposerTarget(),p=target?.pane;
   if(!target){showToast('no pane focused — click an agent first');return;}
+  const referenceGuard=readerReply?.guard();
+  if(referenceGuard&&!referenceGuard(target))return;
   if(!bypass){
-    const verdict=inspectPrompt(text);
+    const verdict=inspectPrompt(draft);
     if(verdict){showSendGuard(verdict);return;}
   }
+  const text=readerReply?readerReply.compose(draft):draft;
   hideSendGuard();
   // one bracketed paste (multiline stays one block in the TUI input box),
   // then a separate CR to submit — same shape the pty expects from a human.
@@ -10917,7 +10971,7 @@ function sendPrompt(opts){
   document.dispatchEvent(new CustomEvent('oc:prompt-sending',{detail:{attemptId,name:target.session,text,startedAt:submittedAt}}));
   const cancel=()=>document.dispatchEvent(new CustomEvent('oc:prompt-send-cancelled',{detail:{attemptId,name:target.session}}));
   setTimeout(()=>{
-    if(!composerTargetPresent(target)){cancel();return;}
+    if(!composerTargetPresent(target)||referenceGuard&&!referenceGuard(target)){cancel();return;}
     if(send({type:"input",paneId:target.paneId,data:"\r"})){
       document.dispatchEvent(new CustomEvent('oc:tour-action',{detail:{id:'talk',name:p.session}}));
       document.dispatchEvent(new CustomEvent('oc:prompt-submitted',{detail:{name:target.session,text,submittedAt,id:submittedAt+':'+(++promptSubmissionSequence),attemptId}}));
@@ -10925,7 +10979,7 @@ function sendPrompt(opts){
     }else{cancel();showToast(`send cancelled → ${target.session}: disconnected before Enter; reconnect and retry`,true);}
   },250);
   pushPromptHistory(text);
-  promptInput.value='';saveDraft();closeSlashMenu();
+  promptInput.value='';readerReply?.clear();saveDraft();closeSlashMenu();
 }
 function sendInterrupt(){
   const p=panes.get(activeId);
@@ -11231,11 +11285,13 @@ promptInput.addEventListener('keydown',e=>{
    computing that answer.
    Polls without `whileHidden` stop in a hidden tab, and kickPolls asks them at
    once when the tab is shown again. `whileHidden` may be a function, asked
-   each time. The agents and mail polls keep running
-   there: the roster stamps each change with the time it was seen, and the mail
-   stream only reaches five minutes back, so a pause would show the wrong order
-   and lose mail when the tab comes back. */
-function startPoll(fn,ms,{whileHidden=false}={}){
+   each time. The agents and mail polls keep running there, but slower
+   (`hiddenMs`): the roster stamps each change with the time it was seen, and
+   the mail stream only reaches five minutes back, so a pause would show the
+   wrong order and lose mail when the tab comes back, while a pace of 15 to
+   20 s only blurs those stamps by that much. Nothing here is shown to
+   anyone while the tab is hidden, and showing it asks again at once. */
+function startPoll(fn,ms,{whileHidden=false,hiddenMs=0}={}){
   let inFlight=null,timer=0,started=-Infinity;
   function run(){
     clearTimeout(timer);timer=0;
@@ -11243,26 +11299,42 @@ function startPoll(fn,ms,{whileHidden=false}={}){
     if(document.hidden&&!(typeof whileHidden==='function'?whileHidden():whileHidden))return Promise.resolve();
     started=Date.now();
     inFlight=Promise.resolve().then(fn).then(ok=>ok===false,()=>true).then(failed=>{
-      inFlight=null;timer=setTimeout(run,failed?ms:Math.max(0,started+ms-Date.now()));
+      // the pace is chosen when the answer is in, so a tab that went to the
+      // background mid-request slows down and one that came back speeds up
+      const every=document.hidden?Math.max(ms,hiddenMs):ms;
+      inFlight=null;timer=setTimeout(run,failed?every:Math.max(0,started+every-Date.now()));
     });
     return inFlight;
   }
   /* kickPolls: at once, unless a request is out or started under a second ago
-     (switching tabs back and forth); the timer then keeps the usual pace */
-  run.kick=()=>inFlight||(Date.now()-started<KICK_FRESH_MS?Promise.resolve():run());
+     (switching tabs back and forth); the timer then goes back to the visible pace */
+  run.kick=()=>{
+    if(inFlight)return inFlight;
+    if(Date.now()-started>=KICK_FRESH_MS)return run();
+    // fresh enough to skip the request, but the timer may still hold the
+    // hidden-tab gap: put it back on the visible pace, counted from that request
+    clearTimeout(timer);timer=setTimeout(run,Math.max(0,started+ms-Date.now()));
+    return Promise.resolve();
+  };
   return run;
 }
 const KICK_FRESH_MS=1000;
-const agentsPoll=startPoll(pollAgents,3000,{whileHidden:true});
+const HIDDEN_AGENTS_MS=15000,HIDDEN_GRAPH_MS=30000;
+const agentsPoll=startPoll(pollAgents,3000,{whileHidden:true,hiddenMs:HIDDEN_AGENTS_MS});
 // a tab opened in the background still takes its first lineage, so the roster
 // it shows when brought forward has the right colours from the start
-const graphPoll=soloSession?null:startPoll(pollGraph,6000,{whileHidden:()=>!lineageParent.size});
+const graphPoll=soloSession?null:startPoll(pollGraph,6000,{whileHidden:()=>!lineageParent.size,hiddenMs:HIDDEN_GRAPH_MS});
 const mailPoll=soloSession?null:startPoll(pollMail,4000,{whileHidden:true});
 function kickPolls(){
   if(soloSession){agentsPoll.kick();return;}
   graphPoll.kick().then(agentsPoll.kick);mailPoll.kick();   // lineage ready before first roster paint
 }
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)kickPolls();});
+/* A hidden tab paints nothing, but its infinite animations still cost style
+   work on every frame in some engines: `page-hidden` (see the stylesheet)
+   pauses them all, and showing the tab lets them run again from where they were. */
+function syncPageHidden(){document.documentElement.classList.toggle('page-hidden',!!document.hidden);}
+document.addEventListener('visibilitychange',()=>{syncPageHidden();if(!document.hidden)kickPolls();});
+syncPageHidden();
 kickPolls();
 </script>
 <script src="orrery_view.js"></script>
@@ -11291,6 +11363,8 @@ const conversationView=(()=>{
     if(loading)return loading;
     loading=(async()=>{
       await asset('link','href','conversation_view.css');
+      await asset('link','href','conversation_steps.css');
+      await asset('script','src','conversation_steps.js');
       await asset('script','src','conversation_source.js');
       await asset('script','src','conversation_preview.js');
       await asset('script','src','conversation_mail.js');
@@ -11298,6 +11372,12 @@ const conversationView=(()=>{
       await asset('script','src','conversation_terminal.js');
       await asset('script','src','conversation_markdown.js');
       await asset('script','src','conversation_view.js');
+      await asset('script','src','conversation_reply.js');
+      await asset('script','src','reader_activity.js');
+      readerReply=OrreryConversationReply.mount({host:promptInput.closest('.promptbar'),input:promptInput,
+        getTarget:captureComposerTarget,onError:text=>showToast(text,true)});
+      readerActivity=OrreryReaderActivity.mount({getPanes:()=>panes.values(),
+        getProgram:pane=>currentAgents.find(agent=>agent.name===pane.session)?.program});
       await asset('link','href','reader_approval.css');
       await asset('script','src','reader_approval.js');
       readerApproval=OrreryReaderApproval.mount({
@@ -11328,7 +11408,8 @@ const conversationView=(()=>{
         frame?.addEventListener('load',wrapFrame);wrapFrame();
       }
       instance=OrreryConversation.mountWorkspace({
-        getContext:(selected)=>{const name=selected||activeSession();return {...(currentAgents.find(a=>a.name===name)||{name}),terminalPaneId:paneIdForSession(name)};},
+        getContext:(selected)=>{const name=selected||activeSession(),paneId=paneIdForSession(name);
+          return {...(currentAgents.find(a=>a.name===name)||{name}),terminalPaneId:paneId,...readerActivity.current(panes.get(paneId))};},
         getSlots:()=>splitVisible?splitSessions.map(name=>({name,host:splitCells.get(name),controlHost:splitCells.get(name)?._actions})).filter(slot=>slot.host?.isConnected):[],
         getOwner:name=>panes.get(paneIdForSession(name)),
         activate:name=>focusSplitSession(name),
@@ -11336,6 +11417,7 @@ const conversationView=(()=>{
         openExternalUrl,
         renderPeerAvatar:conversationPeerAvatar,
         renderAvatar:conversationAvatar,
+        onReference:value=>readerReply.add(value),
       });
       return instance;
     })().catch(error=>{loading=null;showToast(error.message,true);return null;});

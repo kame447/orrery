@@ -677,7 +677,7 @@ BACKEND_COMMIT = _checkout_commit()
 # Mirrors SYNC_RE in bridge/prefs_sync.js.
 PREFS_KEY_RE = re.compile(
     r"^(oc-(term-|mini-|split-|pinned-)|orrery\.(color-theme|spawn-advanced)"
-    r"|agentstack\.theme-profile\.v1\.state$|agentdash\.(netparams|netctl|holdMs))"
+    r"|orrery\.demo\.shared\.v1$|agentstack\.theme-profile\.v1\.state$|agentdash\.(netparams|netctl|holdMs))"
 )
 PREFS_MAX_VALUE = 16 * 1024
 PREFS_MAX_KEYS = 200
@@ -957,6 +957,35 @@ def list_tmux_sessions(tmux_bin: str) -> list[dict[str, Any]]:
     return sessions
 
 
+SESSION_LIST_SHARE_SECONDS = 2.0
+_session_list_shared: dict[Any, tuple[float, "asyncio.Task[list[dict[str, Any]]]"]] = {}
+
+
+async def shared_session_list(tmux_bin) -> list[dict[str, Any]]:
+    """list_tmux_sessions, shared between the callers that ask within a couple
+    of seconds of each other.
+
+    Every cockpit window keeps a connection that asks for the list every 5 s,
+    and the recorder asks too; each ask runs tmux twice. With several windows
+    open they now share one answer instead of running tmux once per window.
+    An answer older than SESSION_LIST_SHARE_SECONDS is never reused, so a
+    session that appears is still seen within that much of the ordinary beat.
+    """
+    key = tmux_bin if isinstance(tmux_bin, str) else id(tmux_bin)
+    now = time.monotonic()
+    shared = _session_list_shared.get(key)
+    if (
+        shared is None
+        or shared[1].get_loop() is not asyncio.get_running_loop()
+        or (shared[1].done() and now - shared[0] >= SESSION_LIST_SHARE_SECONDS)
+    ):
+        task = asyncio.ensure_future(asyncio.to_thread(list_tmux_sessions, tmux_bin))
+        _session_list_shared[key] = shared = (now, task)
+        # a failure is also shared for that long, but never kept beyond it
+        task.add_done_callback(lambda finished: finished.cancelled() or finished.exception())
+    return await asyncio.shield(shared[1])
+
+
 def pane_tmux_session(tmux_bin: str, pane_id: str) -> str | None:
     """Resolve a pane's current session name for destructive-op checks."""
     result = subprocess.run(
@@ -1222,7 +1251,7 @@ class SessionBridgeManager:
         if not await self._recover_legacy_socket():
             return
         try:
-            sessions = await asyncio.to_thread(list_tmux_sessions, self.tmux_bin)
+            sessions = await shared_session_list(self.tmux_bin)
         except (OSError, RuntimeError):
             return
         live_sessions = {
@@ -3351,6 +3380,29 @@ async def serve_identity(request: web.Request) -> web.Response:
     return web.json_response(demo_identity(), headers={"Cache-Control": "no-store"})
 
 
+def shared_demo_state(prefs: dict[str, str]) -> dict[str, Any]:
+    raw = prefs.get("orrery.demo.shared.v1")
+    value = json.loads(raw) if raw is not None else {"version": 1, "on": False, "words": []}
+    if (not isinstance(value, dict) or set(value) != {"version", "on", "words"}
+            or type(value["version"]) is not int or value["version"] != 1
+            or type(value["on"]) is not bool or not isinstance(value["words"], list)
+            or any(not isinstance(word, str) or not 2 <= len(word) <= PREFS_MAX_VALUE for word in value["words"])):
+        raise ValueError("invalid_demo_state")
+    identity = demo_identity() if value["on"] else None
+    return {"version": 1, "on": value["on"],
+            "words": value["words"] if value["on"] else [],
+            "identity": {key: identity[key] for key in ("users", "hosts")} if identity else None}
+
+
+async def serve_shared_demo(request: web.Request) -> web.Response:
+    try:
+        state = shared_demo_state(read_prefs(PREFS_PATH))
+    except (ValueError, TypeError):
+        return web.json_response({"error": "demo_unavailable"}, status=503,
+                                 headers={"Cache-Control": "no-store"})
+    return web.json_response(state, headers={"Cache-Control": "no-store"})
+
+
 def launch_ghostty(tmux_bin: str, session: str) -> None:
     """Launch a detached Ghostty client attached to the requested tmux session."""
     require_target(tmux_bin, "attach", session=session)
@@ -3973,10 +4025,13 @@ async def open_ghostty(request: web.Request) -> web.Response:
 
 
 async def serve_health(request: web.Request) -> web.Response:
+    # Alive is all this asks: the small version route answers it. The full
+    # roster (/api/agents) is about half a megabyte and about a second of the
+    # dashboard's time, and the cockpit checks this often.
     http_session = request.app[HTTP_SESSION_KEY]
     try:
         async with http_session.get(
-            DASHBOARD_URL + "/api/agents",
+            DASHBOARD_URL + "/api/version",
             timeout=ClientTimeout(total=1),
         ):
             dashboard_online = True
@@ -4486,7 +4541,7 @@ async def _session_list_refresher(
     while True:
         await asyncio.sleep(SESSIONS_REFRESH_SECONDS)
         try:
-            sessions = await asyncio.to_thread(list_tmux_sessions, tmux_bin)
+            sessions = await shared_session_list(tmux_bin)
         except (OSError,TargetRefused) as exc:
             _warn_tmux_gone(tmux_bin, exc)
             continue
@@ -4647,9 +4702,10 @@ PUBLIC_FILES = {"/" + name: name for name in (
     "theme_core.js", "theme_controller.js", "roster_descriptor.js", "roster_edit.js", "demo_mask.js",
     "demo_mode.js", "orrery_view.js", "mail_view.js", "cockpit_tour.js",
     "cockpit_full_tour.js", "telemetry_light.js",
-    "conversation_source.js", "conversation_view.js", "conversation_view.css", "conversation_preview.js",
+    "conversation_source.js", "conversation_view.js", "conversation_view.css", "conversation_preview.js", "conversation_reply.js",
+    "conversation_steps.js", "conversation_steps.css",
     "conversation_mail.js", "conversation_speaker.js", "conversation_terminal.js", "conversation_markdown.js",
-    "reader_approval.js", "reader_approval.css",
+    "reader_approval.js", "reader_approval.css", "reader_activity.js",
     "vendor/xterm-5.5.0/xterm.js", "vendor/xterm-5.5.0/xterm.css",
     "vendor/addon-fit-0.10.0/addon-fit.js",
     "vendor/addon-web-links-0.11.0/addon-web-links.js",
@@ -4733,6 +4789,7 @@ def create_app(tmux_bin: str = "tmux", *, mobile_input_enabled: bool = False,
     app.router.add_get("/telemetry/health", serve_health)
     app.router.add_get("/telemetry/platform", serve_platform)
     app.router.add_get("/telemetry/identity", serve_identity)
+    app.router.add_get("/telemetry/demo", serve_shared_demo)
     app.router.add_get("/telemetry/usage", serve_usage)
     app.router.add_get("/telemetry/prefs", serve_prefs)
     app.router.add_put("/telemetry/prefs", update_prefs)

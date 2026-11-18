@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 from conversation_mail import received, sent
 from conversation_images import hermes_content
+from conversation_steps import claude_call, claude_result
 
 from conversation_history import (HistoryUnavailable, MAX_SCAN, MAX_TEXT, PAGE_SIZE,
     open_bound_transcript, assert_transcript_identity, read_codex_page, recorded_model)
@@ -65,6 +66,8 @@ def text_event(text,role,ts):
 
 def tool_event(name,ts,*,result=False,failed=False):
     if not isinstance(name,str):name='Tool'
+    # Keep the PC/mobile image renderers on the established delivery name.
+    if name=='mcp__agentstack__show_files':name='mcp__orrery_mail__show_files'
     return dict(kind='tool_result' if result else 'tool',role='assistant',
                 text=(name[:160]+(' · failed' if failed else ' · completed')) if result else name[:160],ts=ts)
 
@@ -81,6 +84,15 @@ def is_claude_summary(text, item):
     human = isinstance(origin, dict) and origin.get('kind') == 'human'
     return item.get('isCompactSummary') is True or ('isCompactSummary' not in item and
         not human and isinstance(text, str) and text.lstrip().startswith(CLAUDE_COMPACTION_PREFIX))
+
+
+def claude_pasted_text(text):
+    """Unwrap one native paste envelope; leave mixed or nested text literal."""
+    match = re.fullmatch(r'\s*<pasted_content id="([A-Za-z0-9_-]{1,128})">(.*)</pasted_content id="\1">\s*',
+                         text, re.DOTALL)
+    if not match or re.search(r'</?pasted_content\b', match[2]):
+        return text
+    return re.sub(r'\A\r?\n|\r?\n\Z', '', match[2])
 
 
 def claude_text(text, role, ts, item):
@@ -100,7 +112,7 @@ def claude_text(text, role, ts, item):
     if origin == 'human' or not (item.get('promptSource') == 'system' or
             origin in {'task-notification', 'system'} or
             body.startswith(('<task-notification>', '<system-reminder>'))):
-        return text_event(text, role, ts)
+        return text_event(claude_pasted_text(text), role, ts)
     def field(name):
         start = body.find('<' + name + '>')
         if start < 0:
@@ -131,6 +143,9 @@ def normalize(item,p,sid):
     """Return (block-index,event) pairs; hidden/reasoning/raw tool bodies excluded."""
     out=[]
     def add(index,event):
+        if (event and p=='claude' and event.get('kind')=='text' and event.get('role')=='user'
+                and item.get('type')=='user' and not any(e.get('step_boundary') for _,e in out)):
+            event['step_boundary']=True
         if event:out.append((index,event))
     if p=='claude':
         if (item.get('sessionId')!=sid or item.get('isSidechain') or
@@ -164,9 +179,16 @@ def normalize(item,p,sid):
                     # do not duplicate the image references on the text event.
                     if images and event and event.get('role')=='user' and event.get('kind')=='text':event['input_image_count']=images
                     add(i,event)
-                elif b.get('type')=='tool_use' and role=='assistant':add(i,sent(tool_event(b.get('name'),ts),b.get('name'),b.get('input')))
+                elif b.get('type')=='tool_use' and role=='assistant':
+                    event=sent(tool_event(b.get('name'),ts),b.get('name'),b.get('input'))
+                    step=claude_call(b,ts)
+                    if step:event['step']=step
+                    add(i,event)
                 elif b.get('type')=='tool_result' and role=='user':
-                    add(i,tool_event('Tool result',ts,result=True,failed=bool(b.get('is_error'))))
+                    event=tool_event('Tool result',ts,result=True,failed=bool(b.get('is_error')))
+                    step=claude_result(b,ts)
+                    if step:event['step']=step
+                    add(i,event)
                 elif b.get('type') in {'image','document'}:add(i,text_event('[attachment]',role,ts))
     elif p=='dsh':
         if item.get('surfaceOp','append')!='append':return []
