@@ -279,7 +279,7 @@ PROXY_ROUTES = {
     "/telemetry/messages": ("/api/messages-since", ("since", "limit")),
     "/telemetry/graph": ("/api/graph", ("all", "days", "spawn_only")),
     "/telemetry/spawn-catalog": ("/api/spawn-names", ()),
-    "/telemetry/fs/dir-search": ("/api/fs/dir-search", ("q",)),
+    "/telemetry/fs/dir-search": ("/api/fs/dir-search", ("q", "under")),
     "/telemetry/spawn-status": ("/api/spawn-status", ("name", "attempt_id", "mail_instance_id", "mail_agent_id")),
 }
 
@@ -1944,11 +1944,14 @@ def hide_selftest_nodes(body: bytes) -> bytes:
 
 async def proxy_dashboard(request: web.Request) -> web.Response:
     dash_path, allowed = PROXY_ROUTES[request.path]
-    kept = {
-        key: request.query[key]
-        for key in allowed
-        if key in request.query and request.query[key]
-    }
+    if request.path == "/telemetry/fs/dir-search":
+        kept = [(key, value) for key, value in request.query.items() if key in allowed]
+    else:
+        kept = {
+            key: request.query[key]
+            for key in allowed
+            if key in request.query and request.query[key]
+        }
     url = DASHBOARD_URL + dash_path
     if kept:
         url += "?" + urlencode(kept)
@@ -2905,6 +2908,7 @@ async def serve_fs_dirs(request: web.Request) -> web.Response:
     parent = os.path.dirname(path)
     return web.json_response({
         "path": path,
+        "home": os.path.realpath(os.path.expanduser("~")),
         "parent": parent if parent != path else None,
         "dirs": dirs[:200],
         "truncated": len(dirs) > 200,
