@@ -151,6 +151,26 @@ def test_dynamic_local_real_controls_keep_route_and_refuse_lost_selection(tour_b
     assert result['disabled'] and result['lost'] and result['blocked']
 
 
+def test_antigravity_provider_tab_uses_existing_gemini_logo(tour_browser):
+    _, evaluate = tour_browser
+    result = evaluate('''(()=>{
+      spawnCatalog={providers:[{id:'gemini',label:'Antigravity',program:'antigravity',
+        models:[{id:'gemini-3.8-flash-high',default:true}],
+        efforts:['low','high'],capabilities:{effort_required:true}}],naming:{},dirs:[]};
+      selFamily='gemini';selProvider=null;selModel=null;selHarness=null;selEffort=null;
+      renderProviderTabs();
+      const tab=providerTabs.querySelector('[data-family="gemini"]');
+      const logo=tab.querySelector('img');
+      return {label:tab.textContent.includes('Antigravity'),
+        src:logo&&logo.getAttribute('src'),
+        className:logo&&logo.className,
+        noExtraFamily:[...providerTabs.querySelectorAll('button')]
+          .filter(button=>button.dataset.family==='gemini').length===1};
+    })()''')
+    assert result == {'label': True, 'src': 'cockpit-assets/google.svg',
+                      'className': 'spawn-brand', 'noExtraFamily': True}
+
+
 def test_picker_defaults_local_search_and_capability_updates_in_browser(tour_browser):
     _, evaluate = tour_browser
     result = evaluate('''(async()=>{

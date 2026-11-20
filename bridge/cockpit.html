@@ -10160,7 +10160,7 @@ function renderProviderTabs(){
     {id:'codex',asset:'openai.svg'},
     {id:'deepseek',asset:'deepseek.svg'},
     {id:'local',label:'Local models'}];
-  for(const entry of entries)if(!families.some(f=>f.id===entry.family))families.push({id:entry.family,label:entry.provider.label||entry.family});
+  for(const entry of entries)if(!families.some(f=>f.id===entry.family))families.push({id:entry.family,label:entry.provider.label||entry.family,asset:entry.family==='gemini'?'google.svg':null});
   families.forEach(f=>{const p=(spawnCatalog.providers||[]).find(p=>SpawnPicker.family(p,{})===f.id);if(f.id!=='local')f.label=p&&(p.label||p.id)||f.id;});
   const hasFamily=id=>entries.some(e=>e.family===id)||(spawnCatalog.providers||[]).some(p=>SpawnPicker.family(p,{})===id);
   if(!selFamily||!hasFamily(selFamily))selFamily=(families.find(f=>hasFamily(f.id))||families[0]).id;
