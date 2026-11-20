@@ -1564,7 +1564,16 @@
             <div class="spawn-model-scroll"><div class="model-choices" id="modelChoices"></div></div></div></section>
         <section class="spawn-column"><div class="spawn-column-head"><h3>Harness</h3><p id="spawnHarnessHint">For the selected model</p></div>
           <div class="spawn-column-body"><div id="spawnHarnesses" aria-label="Harness choices"></div>
-            <div><div id="spawnHelperField"><label class="spawn-settings-label" for="spawnHelper">Helper model</label>
+            <div><div class="spawn-tools" id="spawnTools" role="group" aria-label="Agent tools" hidden>
+              <button type="button" role="switch" id="spawnComputerUse" aria-label="Computer use" title="Computer use" aria-checked="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M12 16v4m-4 0h8"/></svg>
+                <span class="spawn-tool-track" aria-hidden="true"></span>
+              </button>
+              <button type="button" role="switch" id="spawnBrowserUse" aria-label="Browser" title="Browser" aria-checked="false">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M7 6.5h.01m3 0h.01"/></svg>
+                <span class="spawn-tool-track" aria-hidden="true"></span>
+              </button>
+            </div><div id="spawnHelperField"><label class="spawn-settings-label" for="spawnHelper">Helper model</label>
               <select class="spawn-helper" id="spawnHelper"><option value="same">Same as main</option></select>
               <p class="spawn-default-note" id="spawnHelperNote">Default: Same as main</p></div>
               <div class="effort-row" id="effortRow"><span class="effort-lab">Effort</span>
@@ -1609,6 +1618,16 @@
     <dialog id="spawnDirDialog" aria-labelledby="spawnDirTitle">
       <div class="spawn-dir-head"><h2 id="spawnDirTitle">Choose launch directory</h2>
         <button type="button" class="modal-close" id="spawnDirClose" aria-label="Close directory picker">×</button></div>
+      <div class="dir-search">
+        <div class="dir-search-field">
+          <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg>
+          <input id="spawnDirSearch" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false"
+            aria-controls="spawnDirResults" aria-label="Search folders" title="Search folders" placeholder="Search folders"
+            maxlength="255" autocomplete="off" spellcheck="false" autofocus>
+        </div>
+        <div id="spawnDirResults" class="dir-search-results" role="listbox" aria-label="Matching folders" hidden></div>
+        <div id="spawnDirSearchStatus" class="dir-search-status" role="status"></div>
+      </div>
       <div class="dir-presets" id="dirPresets"></div>
       <div class="dir-crumbs" id="dirCrumbs" aria-label="Current directory"></div>
       <div class="dir-list" id="dirList" role="listbox" aria-label="Subdirectories"></div>
@@ -4455,7 +4474,7 @@
         "unit": "element"
       },
       "source": {
-        "digest": "fa069e72e51d5a9402aa4fd46ec36e0043de268e02e2e7a02e139ddc11d2cd65",
+        "digest": "71d7e767fa6ea1cea99b0e68e698fc04cfa5ab8c7f557b68034a24960d7c6520",
         "records": [
           ".topstat\u0000font-size",
           ".need-chip\u0000font-size",
@@ -4610,7 +4629,7 @@
         "unit": "element"
       },
       "source": {
-        "digest": "d69a0ad554593a88bfdebea29c5bed4aad3f274f61c9ca5a11f7bd29bf636ae4",
+        "digest": "66526de70311cef000a7c2942ed0df3fa0f8b2182a574e85ad0eec73d837e522",
         "records": [
           ".colhead\u0000letter-spacing",
           ".roster-head .colhead-title\u0000letter-spacing",
@@ -4659,9 +4678,9 @@
       }
     }
   },
-  "inventory_digest": "d32aa18d6df02ab461454a4b47251760ee401ee29b0e4b1c25a05924c273a819",
+  "inventory_digest": "9d9a230178285534178b8889180a77ef76f4ca3880ab9dae6b683028f3d7b21e",
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "575efc29453ebf54c07f8e1d394f06eb6e909a7718de34fc5930d357d7612f94",
+  "source_digest": "60938a25603399d5b4df22d7086e88c5a9e0a830ff53392a83ce0a4a20c2a471",
   "surface": "cockpit",
   "version": 1
 }
@@ -4796,6 +4815,8 @@ function buildSpawnPayload(values){
     provider:String(source.provider||'claude').trim(),
     ...(source.harness?{harness:String(source.harness)}:{}),
     ...(source.helper_model&&source.helper_model!=='same'?{helper_model:String(source.helper_model)}:{}),
+    ...(source.base?{base:source.base}:{}),
+    ...(source.tools?{tools:source.tools}:{}),
     ...(Number.isInteger(source.url_index)?{url_index:source.url_index}:{}),
     ...(typeof source.url_key==='string'?{url_key:source.url_key}:{}),
     model:String(source.model||'').trim(),
@@ -10152,6 +10173,7 @@ let selFamily=null,selHarness=null;
 let selUrlIndex=null,selUrlKey=null;
 const SPAWN_RECENT_STORAGE_KEY='orrery.spawn-local-recent.v1';
 const SPAWN_SEARCH_STORAGE_KEY='orrery.spawn-local-search.v1';
+const SPAWN_DIR_RECENT_KEY='orrery.spawn-dir-recent.v1';
 let spawnViewerStorage=null;try{spawnViewerStorage=window.localStorage;}catch(_){/* viewer history is optional */}
 const dirPresets=document.getElementById('dirPresets');
 const dirCrumbs=document.getElementById('dirCrumbs');
@@ -10159,18 +10181,30 @@ const dirList=document.getElementById('dirList');
 const spawnDirDialog=document.getElementById('spawnDirDialog');
 const spawnDirButton=document.getElementById('spawnDirButton');
 const spawnDirUse=document.getElementById('spawnDirUse');
+const spawnDirSearch=document.getElementById('spawnDirSearch');
+const spawnDirResults=document.getElementById('spawnDirResults');
+const spawnDirSearchStatus=document.getElementById('spawnDirSearchStatus');
 let spawnDirPath='',spawnDirBrowsePath='',spawnDirBrowseEpoch=0;
+let spawnDirSearchEpoch=0,spawnDirSearchTimer,spawnDirActive=-1;
 function renderSpawnDirPath(){
   const label=document.getElementById('spawnDirSelected');
   label.textContent=spawnDirPath||'Choose a folder';label.title=spawnDirPath;
 }
 function openSpawnDirPicker(){
   if(!spawnDirDialog.open)spawnDirDialog.showModal();
+  spawnDirSearch.value='';
+  updateSpawnDirSearch();
+  spawnDirSearch.focus();
   browseDir(spawnDirPath||'~');
 }
 function closeSpawnDirPicker(){
   ++spawnDirBrowseEpoch;
+  ++spawnDirSearchEpoch;
+  clearTimeout(spawnDirSearchTimer);
   if(spawnDirDialog.open)spawnDirDialog.close();
+}
+function chooseSpawnDir(path){
+  spawnDirPath=path;renderSpawnDirPath();closeSpawnDirPicker();
 }
 spawnDirButton.addEventListener('click',openSpawnDirPicker);
 document.getElementById('spawnDirClose').addEventListener('click',closeSpawnDirPicker);
@@ -10179,7 +10213,78 @@ spawnDirDialog.addEventListener('cancel',event=>{event.preventDefault();closeSpa
 spawnDirDialog.addEventListener('close',()=>{if(spawnOverlay.classList.contains('on'))spawnDirButton.focus({preventScroll:true});});
 spawnDirUse.addEventListener('click',()=>{
   if(spawnDirUse.disabled||!spawnDirBrowsePath)return;
-  spawnDirPath=spawnDirBrowsePath;renderSpawnDirPath();closeSpawnDirPicker();
+  chooseSpawnDir(spawnDirBrowsePath);
+});
+function activeSpawnDirResult(index,scroll=false){
+  const rows=spawnDirResults.children;
+  spawnDirActive=index;
+  Array.from(rows).forEach((row,i)=>row.setAttribute('aria-selected',String(i===index)));
+  if(rows[index]){
+    spawnDirSearch.setAttribute('aria-activedescendant',rows[index].id);
+    if(scroll)rows[index].scrollIntoView({block:'nearest'});
+  }else spawnDirSearch.removeAttribute('aria-activedescendant');
+}
+function renderSpawnDirResults(paths,status='',activePath){
+  spawnDirResults.replaceChildren();
+  Array.from(new Set(paths)).forEach((path,index)=>{
+    const cleanPath=path.replace(/\/+$/,'')||'/';
+    const slash=cleanPath.lastIndexOf('/');
+    const row=document.createElement('button');row.type='button';row.tabIndex=-1;
+    row.id='spawnDirResult'+index;row.className='dir-search-result';row.title=path;
+    row.setAttribute('role','option');
+    const name=document.createElement('span');name.textContent=cleanPath.slice(slash+1)||'/';
+    row.append(name);
+    if(slash>=0&&cleanPath!=='/'){
+      const parent=document.createElement('small');parent.textContent=cleanPath.slice(0,slash)||'/';
+      row.append(parent);
+    }
+    row.addEventListener('mousedown',event=>event.preventDefault());
+    row.addEventListener('click',()=>browseDir(path,true));
+    spawnDirResults.append(row);
+  });
+  spawnDirResults.hidden=!spawnDirResults.children.length;
+  spawnDirSearch.setAttribute('aria-expanded',String(!spawnDirResults.hidden));
+  const activeIndex=Array.from(spawnDirResults.children).findIndex(row=>row.title===activePath);
+  activeSpawnDirResult(spawnDirResults.hidden?-1:Math.max(activeIndex,0));
+  spawnDirSearchStatus.textContent=status;
+}
+function updateSpawnDirSearch(){
+  const epoch=++spawnDirSearchEpoch;
+  clearTimeout(spawnDirSearchTimer);
+  const query=spawnDirSearch.value.trim();
+  const foldedQuery=query.normalize().toLowerCase();
+  const presets=query?(spawnCatalog?.dirs||[]).filter(dir=>dir.exists!==false).map(dir=>dir.path):[];
+  const localPaths=[...SpawnPicker.recent(spawnViewerStorage,SPAWN_DIR_RECENT_KEY),...presets]
+    .filter(path=>path&&path.replace(/\/+$/,'').split('/').pop().normalize().toLowerCase().includes(foldedQuery));
+  renderSpawnDirResults(localPaths,query&&!localPaths.length?'Searching folders…':'');
+  if(!query)return;
+  spawnDirSearchTimer=setTimeout(async()=>{
+    try{
+      const response=await fetch('/telemetry/fs/dir-search?q='+encodeURIComponent(query));
+      if(!response.ok)throw new Error('Folder search unavailable');
+      const {dirs,truncated}=await response.json();
+      if(epoch!==spawnDirSearchEpoch)return;
+      const paths=[...localPaths,...dirs.map(dir=>dir.path)];
+      const activePath=spawnDirResults.children[spawnDirActive]?.title;
+      const status=paths.length?'':truncated?'No matches in the folders searched.':'No matching folders.';
+      renderSpawnDirResults(paths,status,activePath);
+    }catch(_){
+      if(epoch===spawnDirSearchEpoch)spawnDirSearchStatus.textContent='Folder search is unavailable.';
+    }
+  },150);
+}
+spawnDirSearch.addEventListener('input',updateSpawnDirSearch);
+spawnDirSearch.addEventListener('keydown',event=>{
+  if(event.isComposing)return;
+  const count=spawnDirResults.children.length;
+  if(event.key==='Enter'){
+    event.preventDefault();
+    if(count)spawnDirResults.children[spawnDirActive].click();
+  }else if(count&&(event.key==='ArrowDown'||event.key==='ArrowUp')){
+    event.preventDefault();
+    const step=event.key==='ArrowDown'?1:-1;
+    activeSpawnDirResult((spawnDirActive+step+count)%count,true);
+  }
 });
 const spawnAdjective=document.getElementById('spawnAdjective');
 const adjOptions=document.getElementById('adjOptions');
@@ -10191,6 +10296,14 @@ const effortChoices=document.getElementById('effortChoices');
 const spawnModelSearch=document.getElementById('spawnModelSearch');
 const spawnHelper=document.getElementById('spawnHelper');
 const spawnHarnesses=document.getElementById('spawnHarnesses');
+const spawnTools=document.getElementById('spawnTools');
+const spawnComputerUse=document.getElementById('spawnComputerUse');
+const spawnBrowserUse=document.getElementById('spawnBrowserUse');
+const spawnToolSwitches=[spawnComputerUse,spawnBrowserUse];
+let spawnToolsRoute=null;
+for(const control of spawnToolSwitches){
+  control.addEventListener('click',()=>control.setAttribute('aria-checked',String(control.getAttribute('aria-checked')!=='true')));
+}
 const ncPortrait=document.getElementById('ncPortrait');
 const ncDiceFace=document.getElementById('ncDiceFace');
 const ncName=document.getElementById('ncName');
@@ -10244,7 +10357,7 @@ function renderProviderTabs(){
     const name=document.createElement('span');name.textContent=f.label;
     const origin=document.createElement('small');origin.textContent=f.id==='local'?'LOCAL':'CLOUD';origin.classList.toggle('local-label',f.id==='local');
     copy.append(name,origin);b.append(copy);
-    b.addEventListener('click',()=>{selFamily=f.id;selProvider=null;selModel=null;selUrlIndex=null;selUrlKey=null;selEffort=null;selHarness=null;renderProviderTabs();});
+    b.addEventListener('click',()=>{selFamily=f.id;selProvider=null;selModel=null;selUrlIndex=null;selUrlKey=null;selEffort=null;selHarness=null;spawnToolsRoute=null;renderProviderTabs();});
     providerTabs.append(b);
   });
   const local=selFamily==='local';spawnModelSearch.hidden=!local;
@@ -10298,6 +10411,32 @@ function renderLocalModels(){
   if(!matches.length){const empty=document.createElement('p');empty.className='spawn-empty';empty.textContent=query?'No models match your search.':'No local models are available in your catalog.';modelChoices.append(empty);}
 }
 function selectedSpawnModel(){const p=providerById(selProvider);return p&&(p.models||[]).find(m=>m.id===selModel&&(!Number.isInteger(m.url_index)||m.url_index===selUrlIndex)&&(!m.url_key||m.url_key===selUrlKey))||null;}
+function renderSpawnTools(){
+  const harness=SpawnPicker.harnessKey(selHarness);
+  spawnTools.hidden=spawnCatalog?.runtime_mode==='fresh'||!['claude-code','codex','dsh','hermes'].includes(harness);
+  const route=spawnTools.hidden?null:JSON.stringify([selProvider,harness]);
+  if(route===spawnToolsRoute)return;
+  spawnToolsRoute=route;
+  for(const control of spawnToolSwitches){
+    control.setAttribute('aria-checked',String(Boolean(route)&&harness!=='dsh'));
+  }
+}
+function spawnToolOptions(){
+  if(spawnCatalog?.runtime_mode==='fresh'||spawnTools.hidden)return {};
+  const harness=SpawnPicker.harnessKey(selHarness);
+  const native=harness==='dsh'||harness==='hermes';
+  const computer=spawnComputerUse.getAttribute('aria-checked')==='true';
+  const browser=spawnBrowserUse.getAttribute('aria-checked')==='true';
+  const mcp=[];
+  if(computer)mcp.push('cua-driver');
+  // Native harnesses can copy an MCP server without the per-tool approvals that tools.browser requests.
+  if(browser&&native)mcp.push('chrome-devtools');
+  return {
+    // The default base can inherit Chrome, and Codex can also inherit cua-driver.
+    ...(!browser||(harness==='codex'&&!computer)?{base:'mail-only'}:{}),
+    tools:{...(mcp.length?{mcp}:{}),...(browser&&!native?{browser:{}}:{})},
+  };
+}
 function renderHarnesses(){
   const p=providerById(selProvider),model=selectedSpawnModel();
   spawnHarnesses.replaceChildren();
@@ -10312,7 +10451,7 @@ function renderHarnesses(){
     if(info.asset){const img=document.createElement('img');img.src='cockpit-assets/'+info.asset;img.alt='';img.className='spawn-brand'+(['hermes','dsh'].includes(SpawnPicker.harnessKey(h.id))?' harness-art':'');button.append(img);}
     const label=document.createElement('span');label.textContent=(h.default?'Default: ':'')+h.label;button.append(label);
     if(!h.available){const note=document.createElement('small');note.textContent=SpawnPicker.unavailableReason(h);button.append(note);}
-    button.addEventListener('click',()=>{selHarness=h.id;renderHarnesses();});spawnHarnesses.append(button);
+    button.addEventListener('click',()=>{selHarness=h.id;spawnToolsRoute=null;renderHarnesses();});spawnHarnesses.append(button);
   });
   if(choices.some(h=>!h.available)){
     const help=document.createElement('a');help.className='spawn-setup-help';help.textContent='Setup and compatibility guide';
@@ -10327,7 +10466,7 @@ function renderHarnesses(){
   spawnHelper.disabled=!hasHelpers;document.getElementById('spawnHelperField').hidden=!hasHelpers;
   if([...spawnHelper.options].some(o=>o.value===previous))spawnHelper.value=previous;
   document.getElementById('spawnHelperNote').textContent='Default: Same as main';
-  renderEfforts(p);renderSpawnSummary();paintSpawnMaker(p,model);updateNameCard();updateSpawnAvailability();
+  renderSpawnTools();renderEfforts(p);renderSpawnSummary();paintSpawnMaker(p,model);updateNameCard();updateSpawnAvailability();
 }
 function paintSpawnMaker(provider,model){
   const badge=document.getElementById('spawnMakerBadge'),image=badge.querySelector('img');
@@ -10518,22 +10657,31 @@ function renderDirs(){
   if(!spawnDirPath)browseDir((dirs[0]||{}).path||'~');
   else browseDir(spawnDirPath);
 }
-async function browseDir(path){
+async function browseDir(path,confirm=false){
   const epoch=++spawnDirBrowseEpoch,selecting=spawnDirDialog.open;
+  if(confirm)spawnDirSearchStatus.textContent='';
   if(selecting)spawnDirUse.disabled=true;
   let payload=null;
   try{
     const r=await fetch('/telemetry/fs/dirs?path='+encodeURIComponent(path));
     payload=await r.json();
     if(!r.ok)throw new Error(payload.error||'browse failed');
+    if(!payload.path)throw new Error('Folder unavailable');
   }catch(err){
     if(epoch!==spawnDirBrowseEpoch)return;
+    if(confirm){
+      spawnDirUse.disabled=!spawnDirBrowsePath;
+      spawnDirSearchStatus.textContent='This folder is no longer available.';
+      return;
+    }
+    spawnDirBrowsePath='';
     dirList.innerHTML='';
     const row=document.createElement('div');row.className='dir-err';
     row.textContent=String(err&&err.message||err);
     dirList.appendChild(row);return;
   }
   if(epoch!==spawnDirBrowseEpoch)return;
+  if(confirm){chooseSpawnDir(payload.path);return;}
   const currentPath=payload.path;spawnDirBrowsePath=currentPath;
   if(!selecting){spawnDirPath=currentPath;renderSpawnDirPath();}
   if(selecting&&spawnDirDialog.open)spawnDirUse.disabled=false;
@@ -10654,6 +10802,7 @@ function openSpawnModal(){
   spawnAdvanced.open=false;
   spawnWorktreeBaseWrap.classList.remove('on');spawnStatus.textContent='ready';
   selScientist='';selProvider=null;selModel=null;selEffort=null;selFamily=null;selHarness=null;
+  renderSpawnTools();
   selUrlIndex=null;
   selUrlKey=null;
   try{spawnModelSearch.value=spawnViewerStorage?.getItem(SPAWN_SEARCH_STORAGE_KEY)||'';}catch(_){spawnModelSearch.value='';}
@@ -10684,6 +10833,7 @@ function spawnPayloadFromForm(){
     provider:selProvider,
     harness:selHarness&&SpawnPicker.harnessKey(selHarness)!==legacyHarness?selHarness:null,
     helper_model:!spawnHelper.disabled?spawnHelper.value:null,
+    ...spawnToolOptions(),
     model:selModel||(spawnForm.querySelector('input[name="spawnModel"]:checked')||{}).value,
     url_index:selectedSpawnModel()?.url_index,
     url_key:selectedSpawnModel()?.url_key,
@@ -10735,6 +10885,7 @@ async function submitSpawn(event){
     let result={};
     try{result=await response.json();}catch(_){/* HTTP status is still useful */}
     if(!response.ok||!result.ok)throw new Error(result.error||`HTTP ${response.status}`);
+    SpawnPicker.remember(spawnViewerStorage,SPAWN_DIR_RECENT_KEY,payload.dir);
     if(SpawnPicker.locality(p,model)==='local')SpawnPicker.remember(spawnViewerStorage,SPAWN_RECENT_STORAGE_KEY,
       JSON.stringify([p.id,model.id,...(Number.isInteger(model.url_index)?[model.url_index]:[]),...(model.url_key?[model.url_key]:[])]));
     spawnBusy=false;closeSpawnModal(true);

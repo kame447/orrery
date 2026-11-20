@@ -279,6 +279,7 @@ PROXY_ROUTES = {
     "/telemetry/messages": ("/api/messages-since", ("since", "limit")),
     "/telemetry/graph": ("/api/graph", ("all", "days", "spawn_only")),
     "/telemetry/spawn-catalog": ("/api/spawn-names", ()),
+    "/telemetry/fs/dir-search": ("/api/fs/dir-search", ("q",)),
     "/telemetry/spawn-status": ("/api/spawn-status", ("name", "attempt_id", "mail_instance_id", "mail_agent_id")),
 }
 
@@ -631,7 +632,7 @@ def normalize_spawn_catalog(remote: Any) -> dict[str, Any] | None:
     return remote
 
 
-def merge_spawn_catalog(payload: bytes) -> bytes:
+def merge_spawn_catalog(payload: bytes, *, runtime_mode: str | None = None) -> bytes:
     """Normalize telemetry data without local model or provider name overrides."""
     try:
         remote = normalize_spawn_catalog(json.loads(payload))
@@ -639,6 +640,8 @@ def merge_spawn_catalog(payload: bytes) -> bytes:
         return payload
     if remote is None:
         return payload
+    if runtime_mode is not None:
+        remote["runtime_mode"] = runtime_mode
     return json.dumps(remote, ensure_ascii=False).encode("utf-8")
 
 
@@ -1867,7 +1870,8 @@ async def fetch_proxied(
         labels = await annotations_by_agent(http_session)
         body = await asyncio.to_thread(prepare_agents_payload, body, labels, tmux_bin)
     if path == "/telemetry/spawn-catalog" and status == 200:
-        body = merge_spawn_catalog(body)
+        mode = 'fresh' if isinstance(tmux_bin, FreshTargetBoundary) else 'legacy'
+        body = merge_spawn_catalog(body, runtime_mode=mode)
     return body, status, content_type
 
 
@@ -4893,6 +4897,7 @@ def create_app(tmux_bin: str = "tmux", *, mobile_input_enabled: bool = False,
     app.router.add_get("/telemetry/skills", serve_skills)
     app.router.add_get("/telemetry/clipboard/files", serve_clipboard_files)
     app.router.add_get("/telemetry/fs/dirs", serve_fs_dirs)
+    app.router.add_get("/telemetry/fs/dir-search", proxy_dashboard)
     app.router.add_route("*", "/network", proxy_dashboard_passthrough)
     app.router.add_route("*", "/network/{tail:.*}", proxy_dashboard_passthrough)
     app.router.add_route("*", "/api/{tail:.*}", proxy_dashboard_passthrough)

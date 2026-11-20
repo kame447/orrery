@@ -1,4 +1,5 @@
 """Catalog capabilities, model identity and request compatibility for the picker."""
+import asyncio
 import json
 import re
 import subprocess
@@ -25,6 +26,32 @@ def test_legacy_catalog_gets_its_existing_launch_path_without_model_changes():
     assert provider['locality'] == 'cloud'
     assert provider['harnesses'] == [dict(id='claude-code', label='Claude Code', available=True, default=True)]
     assert provider['models'][0] == dict(id='claude-sonnet-5', label='claude-sonnet-5')
+
+
+def test_proxied_catalog_mode_comes_from_the_runtime_boundary():
+    class Response:
+        status = 200
+        headers = {'Content-Type': 'application/json'}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def read(self):
+            return b'{"providers":[],"runtime_mode":"unknown"}'
+
+    class Session:
+        def get(self, *_args, **_kwargs):
+            return Response()
+
+    fresh = object.__new__(ob.FreshTargetBoundary)
+    for boundary, mode in [(object(), 'legacy'), (fresh, 'fresh')]:
+        body, status, _ = asyncio.run(ob.fetch_proxied(
+            Session(), '/telemetry/spawn-catalog', 'http://fixture.invalid', boundary))
+        assert status == 200
+        assert json.loads(body)['runtime_mode'] == mode
 
 
 def test_model_capabilities_override_provider_and_empty_means_unavailable():
@@ -210,6 +237,32 @@ def test_picker_defaults_local_search_and_capability_updates_in_browser(tour_bro
     assert result['codex']['payload']['effort']=='high'
 
 
+def test_tool_defaults_follow_harness_and_keep_manual_choices_on_render(tour_browser):
+    _, evaluate = tour_browser
+    result = evaluate('''(()=>{
+      const model={id:'fixture',default:true};
+      spawnCatalog={providers:[
+        {id:'claude',program:'claude-code',models:[model]},
+        {id:'codex',program:'codex-cli',models:[model]},
+        {id:'deepseek',program:'dsh',models:[model],harnesses:[
+          {id:'dsh',available:true,default:true},{id:'hermes',available:true}]}]};
+      const select=family=>providerTabs.querySelector(`[data-family="${family}"]`).click();
+      const states=()=>spawnToolSwitches.map(control=>control.getAttribute('aria-checked')==='true');
+      renderProviderTabs();
+      const claude=states();
+      spawnComputerUse.click();
+      renderProviderTabs();
+      const edited=states();
+      select('codex');const codex=states();
+      select('deepseek');const dsh=states();
+      spawnHarnesses.querySelector('[data-harness="hermes"]').click();const hermes=states();
+      spawnHarnesses.querySelector('[data-harness="dsh"]').click();
+      return {claude,edited,codex,dsh,hermes,dshAgain:states()};
+    })()''')
+    assert result == dict(claude=[True, True], edited=[False, True], codex=[True, True],
+                         dsh=[False, False], hermes=[True, True], dshAgain=[False, False])
+
+
 def test_submit_cloud_defaults_and_optional_local_parameters_without_real_spawn(tour_browser):
     _, evaluate = tour_browser
     result = evaluate('''(async()=>{
@@ -222,6 +275,7 @@ def test_submit_cloud_defaults_and_optional_local_parameters_without_real_spawn(
         spawnCatalog={providers:[
           {id:'claude',program:'claude-code',models:[{id:'claude-fixture',default:true},{id:'local-override',locality:'local'}]},
           {id:'codex',program:'codex-cli',models:[{id:'gpt-fixture',default:true}],efforts:['low','high'],effort_default:'high'},
+          {id:'deepseek',program:'dsh',models:[{id:'deepseek-fixture',default:true}]},
           {id:'local-fixture',locality:'local',program:'codex-cli',models:[{id:'local-one',default:true}],
             harnesses:[{id:'example-tool',default:true,available:true}],helper_models:['small']}],naming:{},dirs:[]};
         selFamily=null;selProvider=null;selModel=null;selHarness=null;selScientist='';
@@ -229,21 +283,59 @@ def test_submit_cloud_defaults_and_optional_local_parameters_without_real_spawn(
         const cloudModels=[...modelChoices.querySelectorAll('input[name="spawnModel"]')].map(i=>i.value);
         await submitSpawn(new Event('submit',{cancelable:true}));
         providerTabs.querySelector('[data-family="codex"]').click();
+        spawnComputerUse.click();
+        await submitSpawn(new Event('submit',{cancelable:true}));
+        spawnBrowserUse.click();
+        await submitSpawn(new Event('submit',{cancelable:true}));
+        providerTabs.querySelector('[data-family="deepseek"]').click();
+        await submitSpawn(new Event('submit',{cancelable:true}));
+        spawnComputerUse.click();spawnBrowserUse.click();
         await submitSpawn(new Event('submit',{cancelable:true}));
         providerTabs.querySelector('[data-family="local"]').click();
         spawnHelper.value='small';
+        const hidden=spawnTools.hidden;
         await submitSpawn(new Event('submit',{cancelable:true}));
-        return {posted,cloudModels,recent:SpawnPicker.recent(localStorage,SPAWN_RECENT_STORAGE_KEY)};
+        return {posted,cloudModels,hidden,recent:SpawnPicker.recent(localStorage,SPAWN_RECENT_STORAGE_KEY)};
       }finally{window.fetch=originalFetch;}
     })()''')
-    claude,codex,local=result['posted']
+    claude,codex,codex_off,dsh_off,dsh_on,local=result['posted']
     assert result['cloudModels'] == ['claude-fixture']
     assert claude['provider'] == 'claude' and 'effort' not in claude
     assert codex['provider'] == 'codex' and codex['effort']=='high'
     assert 'harness' not in claude and 'helper_model' not in claude
     assert 'harness' not in codex and 'helper_model' not in codex
+    assert claude['tools'] == {'mcp': ['cua-driver'], 'browser': {}}
+    assert codex['tools'] == {'browser': {}} and codex['base'] == 'mail-only'
+    assert codex_off['tools'] == {} and codex_off['base'] == 'mail-only'
+    assert dsh_off['tools'] == {} and dsh_off['base'] == 'mail-only'
+    assert dsh_on['tools'] == {'mcp': ['cua-driver', 'chrome-devtools']}
     assert local['provider'] == 'local-fixture' and local['harness'] == 'example-tool' and local['helper_model'] == 'small'
+    assert result['hidden'] and 'tools' not in local
     assert result['recent'][0] == json.dumps(['local-fixture','local-one'],separators=(',',':'))
+
+
+def test_fresh_spawn_omits_unsupported_tool_options(tour_browser):
+    _, evaluate = tour_browser
+    result = evaluate('''(async()=>{
+      const originalFetch=window.fetch,posted=[];
+      window.fetch=async(url,options)=>{
+        if(url==='/telemetry/spawn'){posted.push(JSON.parse(options.body));return {ok:true,json:async()=>({ok:true,child_name:'FixtureOnly'})};}
+        return originalFetch(url,options);
+      };
+      try{
+        const catalog={providers:[{id:'claude',program:'claude-code',models:[{id:'claude-fixture',default:true}]}],naming:{},dirs:[]};
+        spawnCatalog={...catalog,runtime_mode:'legacy'};renderProviderTabs();
+        const legacyVisible=!spawnTools.hidden;
+        spawnCatalog={...catalog,runtime_mode:'fresh'};renderProviderTabs();
+        const freshHidden=spawnTools.hidden;
+        spawnDirPath='/workspace';spawnTask.value='Fixture task';
+        await submitSpawn(new Event('submit',{cancelable:true}));
+        return {legacyVisible,freshHidden,posted};
+      }finally{window.fetch=originalFetch;}
+    })()''')
+    assert result['legacyVisible'] and result['freshHidden']
+    assert len(result['posted']) == 1
+    assert {'tools', 'base'}.isdisjoint(result['posted'][0])
 
 
 def test_empty_provider_keeps_its_configuration_error_visible(tour_browser):
@@ -338,6 +430,52 @@ def test_directory_dialog_commits_only_on_confirmation_and_escape_keeps_parent(t
     assert result['before'] == result['cancelled'] == '/workspace'
     assert result['confirmed'] == result['label'] == result['payload'] == '/workspace/tools'
     assert result['closed'] and result['parent']
+
+
+def test_directory_search_orders_sources_and_commits_with_keyboard(tour_browser):
+    _,evaluate=tour_browser
+    result=evaluate('''(async()=>{
+      const originalFetch=window.fetch;
+      window.fetch=async(url)=>{
+        const request=new URL(url,location.origin);
+        if(request.pathname==='/telemetry/fs/dir-search'){
+          const q=request.searchParams.get('q');
+          return {ok:true,json:async()=>({dirs:q==='pro'?[
+            {path:'/recent/Project'},{path:'/projects/work/Project'}]:[]})};
+        }
+        return {ok:true,json:async()=>({path:request.searchParams.get('path'),dirs:[]})};
+      };
+      try{
+        SpawnPicker.remember(spawnViewerStorage,SPAWN_DIR_RECENT_KEY,'/recent/Project');
+        spawnCatalog={dirs:[{path:'/preset/Projects'}]};
+        spawnDirPath='/workspace';spawnOverlay.classList.add('on');openSpawnDirPicker();
+        const focus=document.activeElement===spawnDirSearch;
+        spawnDirSearch.value='pro';spawnDirSearch.dispatchEvent(new Event('input'));
+        const waitFor=async test=>{
+          for(let attempt=0;attempt<50&&!test();attempt++)await new Promise(resolve=>setTimeout(resolve,20));
+        };
+        await waitFor(()=>spawnDirResults.children.length===3);
+        const paths=Array.from(spawnDirResults.children,row=>[row.title,row.firstChild.textContent,row.lastChild.textContent]);
+        const press=key=>spawnDirSearch.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true}));
+        const first=spawnDirSearch.getAttribute('aria-activedescendant');
+        press('ArrowUp');
+        const last=spawnDirSearch.getAttribute('aria-activedescendant');
+        const retained=dirCrumbs.lastChild.textContent==='workspace'&&!dirList.hidden;
+        press('Enter');await waitFor(()=>!spawnDirDialog.open);
+        const picked=spawnDirPath;
+        openSpawnDirPicker();press('Enter');await waitFor(()=>!spawnDirDialog.open);
+        return {focus,paths,first,last,retained,picked,defaultPick:spawnDirPath};
+      }finally{window.fetch=originalFetch;}
+    })()''')
+    assert result['focus'] and result['retained']
+    assert result['paths'] == [
+        ['/recent/Project','Project','/recent'],
+        ['/preset/Projects','Projects','/preset'],
+        ['/projects/work/Project','Project','/projects/work'],
+    ]
+    assert result['first'] == 'spawnDirResult0' and result['last'] == 'spawnDirResult2'
+    assert result['picked'] == '/projects/work/Project'
+    assert result['defaultPick'] == '/recent/Project'
 
 
 @pytest.mark.parametrize('provider,levels', [
