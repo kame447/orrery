@@ -13,6 +13,8 @@ ANTIGRAVITY = {
          "window_seconds": 18000, "resets_at": 1792388000},
         {"id": "gemini-weekly", "label": "Gemini Models · 7d", "remaining_percent": 82.2,
          "window_seconds": 604800, "resets_at": 1792832964},
+        {"id": "third-party-5h", "label": "Claude and GPT models · 5h", "remaining_percent": 100,
+         "window_seconds": 18000, "resets_at": 1792388000},
         {"id": "third-party-weekly", "label": "Claude and GPT models · 7d", "remaining_percent": 100,
          "window_seconds": 604800, "resets_at": 1793296417},
         {"id": "gemini-argon-weekly", "label": "Gemini 4 Argon · 7d", "remaining_percent": 69.9,
@@ -27,7 +29,7 @@ def test_antigravity_catalog_is_forwarded_only_when_telemetry_reports_it():
     providers = get_usage(request)
     assert [p["provider"] for p in providers] == ["claude", "codex", "antigravity"]
     assert [w["limit"] for w in providers[-1]["windows"]] == [
-        "Gemini Models", "Gemini Models", "Claude and GPT models", "Gemini 4 Argon"
+        "Gemini Models", "Gemini Models", "Claude and GPT models", "Claude and GPT models", "Gemini 4 Argon"
     ]
     assert all(w["extra"] for w in providers[-1]["windows"])
     assert get_usage(request) == providers
@@ -48,23 +50,23 @@ def test_antigravity_dials_match_other_providers_and_settings(tour_browser):
       pill:document.querySelector('#usageBtn [data-provider="antigravity"] b').textContent,
       title:document.querySelector('#usageBtn [data-provider="antigravity"]').title,
       headings:[...document.querySelectorAll('#usageDials .up-head .up-name')].map(e=>e.textContent),
-      names:[...document.querySelectorAll('#usageDials .up-prov:last-of-type .up-subname')].map(e=>e.textContent),
+      names:[...document.querySelectorAll('#usageDials .up-prov:last-of-type .up-quota-group-name')].map(e=>e.textContent),
       labels:[...document.querySelectorAll('#usageDials .up-prov:last-of-type .up-sub > span:first-child')].map(e=>e.textContent),
       dials:document.querySelectorAll('#usageDials .up-prov:last-of-type .dial').length,
       dialLabels:[...document.querySelectorAll('#usageDials .up-prov:last-of-type .dial .lab')].map(e=>e.textContent),
-      foreign:document.querySelector('#usageDials .up-prov:last-of-type').textContent.includes('Claude and GPT models'),
+      foreign:document.querySelector('#usageDials .up-prov:last-of-type').textContent.includes('Claude / GPT'),
       untouched:document.querySelector('#usageDials .up-prov:last-of-type').textContent.includes('untouched'),
       source:document.querySelector('#usageDials .up-foot').textContent
     }))()""")
-    assert result["pill"] == "70%"
-    assert "Gemini 4 Argon · 7d" in result["title"]
+    assert result["pill"] == "82%"
+    assert "Gemini Models · 7d" in result["title"]
     assert result["headings"] == ["Claude", "Codex", "Antigravity (Gemini)"]
-    assert result["names"] == []
+    assert result["names"] == ["Gemini", "Claude / GPT"]
     assert result["labels"] == []
-    assert result["dialLabels"] == ["5H", "7D", "ARGON"]
-    assert result["foreign"] is False
+    assert result["dialLabels"] == ["5H", "7D", "5H", "7D"]
+    assert result["foreign"] is True
     assert result["untouched"] is False
-    assert result["dials"] == 3
+    assert result["dials"] == 4
     assert "Antigravity quotas from ORRERY Telemetry" in result["source"]
     positions = evaluate("""(()=>{
       const pop=document.getElementById('usagePopover');pop.showPopover();
@@ -73,7 +75,7 @@ def test_antigravity_dials_match_other_providers_and_settings(tour_browser):
       pop.hidePopover();
       return rects.map(r=>({x:r.left,y:r.top,width:r.width,height:r.height}));
     })()""")
-    assert len(positions) == 3
+    assert len(positions) == 4
     assert all(abs(rect["y"] - positions[0]["y"]) < 1 for rect in positions)
     assert all(left["x"] + left["width"] <= right["x"]
                for left, right in zip(positions, positions[1:]))
@@ -206,13 +208,13 @@ def test_antigravity_and_balance_slots_are_independent(tour_browser):
     usage_dom(evaluate, {"providers": providers})
     assert evaluate("""[...document.querySelectorAll('#usageBtn .up-p')]
       .map(e=>[e.dataset.provider,e.querySelector('b').textContent])""") == [
-        ["claude", "64%"], ["codex", "47%"], ["antigravity", "70%"], ["dsh", "$12"]]
+        ["claude", "64%"], ["codex", "47%"], ["antigravity", "82%"], ["dsh", "$12"]]
     usage_dom(evaluate, {"providers": [p for p in providers if p["provider"] != "antigravity"]})
     assert evaluate("""!document.querySelector('#usageBtn [data-provider="antigravity"]')
       && document.querySelector('#usageBtn [data-provider="dsh"] b').textContent==='$12'""")
 
 
-def test_named_pool_binding_does_not_change_other_providers(tour_browser):
+def test_named_pool_binding_uses_displayed_quota_and_not_argon(tour_browser):
     import usage_probe as up
     _, evaluate = tour_browser
     windows = up.provider_from_quota_payload(ANTIGRAVITY).to_json()["windows"]
@@ -226,7 +228,7 @@ def test_named_pool_binding_does_not_change_other_providers(tour_browser):
         {id:'main',remaining_percent:90,extra:false},...windows]});
       return {ag:ag.id,codex:codex.id,unchanged:JSON.stringify(windows)===before};
     })()""".replace('WINDOWS', json.dumps(windows))
-    assert evaluate(expression) == {"ag": "gemini-argon-weekly", "codex": "main", "unchanged": True}
+    assert evaluate(expression) == {"ag": "third-party-5h", "codex": "main", "unchanged": True}
 
 
 def test_antigravity_model_group_is_rendered_as_text(tour_browser):
@@ -237,20 +239,21 @@ def test_antigravity_model_group_is_rendered_as_text(tour_browser):
         {"id": "named", "label": name + " · 7d", "remaining_percent": 42}]}
     usage_dom(evaluate, {"providers": [up.provider_from_quota_payload(entry).to_json()]})
     assert evaluate("""(()=>({
-      name:document.querySelector('#usageDials .dial .lab').textContent,
-      markup:document.querySelector('#usageDials .dial .lab').children.length,
+      name:document.querySelector('#usageDials .up-quota-group-name').textContent,
+      markup:document.querySelector('#usageDials .up-quota-group-name').children.length,
       executed:window.__usageInjected===true
-    }))()""") == {"name": name.upper(), "markup": 0, "executed": False}
+    }))()""") == {"name": name, "markup": 0, "executed": False}
 
 
-def test_antigravity_main_windows_are_ordered_and_third_party_is_not_binding(tour_browser):
+def test_antigravity_windows_are_grouped_and_argon_is_not_binding(tour_browser):
     import usage_probe as up
     _, evaluate = tour_browser
     entry = {**ANTIGRAVITY, "buckets": [
         {**ANTIGRAVITY["buckets"][1], "remaining_percent": 95},
-        {**ANTIGRAVITY["buckets"][2], "remaining_percent": 1},
+        {**ANTIGRAVITY["buckets"][3], "remaining_percent": 1},
         {**ANTIGRAVITY["buckets"][0], "remaining_percent": 100},
-        {**ANTIGRAVITY["buckets"][3], "remaining_percent": 76},
+        {**ANTIGRAVITY["buckets"][2], "remaining_percent": 88},
+        {**ANTIGRAVITY["buckets"][4], "remaining_percent": 76},
     ]}
     usage_dom(evaluate, {"providers": [up.provider_from_quota_payload(entry).to_json()]})
     result = evaluate("""(()=>({
@@ -258,13 +261,13 @@ def test_antigravity_main_windows_are_ordered_and_third_party_is_not_binding(tou
         title:document.querySelector('#usageBtn [data-provider="antigravity"]').title,
         labels:[...document.querySelectorAll('#usageDials .dial .lab')].map(e=>e.textContent),
         mainReset:document.querySelector('#usageDials .up-reset').textContent,
-        foreign:document.querySelector('#usageDials').textContent.includes('Claude and GPT models')
+        foreign:document.querySelector('#usageDials').textContent.includes('Claude / GPT')
     }))()""")
-    assert result["pill"] == "76%"
-    assert "Gemini 4 Argon · 7d" in result["title"]
-    assert result["labels"] == ["5H", "7D", "ARGON"]
+    assert result["pill"] == "1%"
+    assert "Claude and GPT models · 7d" in result["title"]
+    assert result["labels"] == ["5H", "7D", "5H", "7D"]
     assert result["mainReset"].startswith("next reset 5h · ")
-    assert result["foreign"] is False
+    assert result["foreign"] is True
 
 
 
@@ -279,20 +282,22 @@ def test_antigravity_zero_use_still_displays_numeric_dials(tour_browser):
         dials:[...document.querySelectorAll('#usageDials .dial .n')].map(e=>e.textContent),
         text:document.querySelector('#usageDials').textContent
     }))()""")
-    assert result["dials"] == ["100%", "100%", "100%"]
+    assert result["dials"] == ["100%", "100%", "100%", "100%"]
     assert "untouched" not in result["text"]
 
 
-def test_antigravity_only_third_party_buckets_cannot_fake_gemini_quota(tour_browser):
+def test_antigravity_third_party_only_does_not_fake_gemini_quota(tour_browser):
     import usage_probe as up
     _, evaluate = tour_browser
-    entry = {**ANTIGRAVITY, "buckets": [ANTIGRAVITY["buckets"][2]]}
+    entry = {**ANTIGRAVITY, "buckets": [ANTIGRAVITY["buckets"][3]]}
     usage_dom(evaluate, {"providers": [up.provider_from_quota_payload(entry).to_json()]})
     result = evaluate("""(()=>({
         value:document.querySelector('#usageBtn [data-provider="antigravity"] b').textContent,
         dials:document.querySelectorAll('#usageDials .dial').length,
-        body:document.querySelector('#usageDials').textContent
+        body:document.querySelector('#usageDials').textContent,
+        groups:[...document.querySelectorAll('#usageDials .up-quota-group-name')].map(e=>e.textContent)
     }))()""")
-    assert result["value"] == "—"
-    assert result["dials"] == 0
-    assert "Claude and GPT models" not in result["body"]
+    assert result["value"] == "100%"
+    assert result["dials"] == 1
+    assert "Claude / GPT" in result["body"]
+    assert result["groups"] == ["Claude / GPT"]

@@ -461,6 +461,12 @@
   .usage-popover .up-name{font-family:var(--serif);font-size:15px;letter-spacing:.02em;color:var(--ink)}
   .usage-popover .up-reset{font-size:10px;color:var(--ink-dim);letter-spacing:.04em;font-variant-numeric:tabular-nums}
   .usage-popover .up-dials{display:flex;flex-wrap:wrap;gap:12px 14px}
+  .usage-popover .up-quota-groups{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .usage-popover .up-quota-group{min-width:0}
+  .usage-popover .up-quota-group-name{font-size:10px;letter-spacing:.1em;color:var(--ink-dim);margin:0 0 8px}
+  .usage-popover .up-quota-group .up-dials{flex-wrap:nowrap;gap:6px}
+  .usage-popover .up-quota-group .dial{width:calc((100% - 6px)/2);min-width:0}
+  .usage-popover .up-quota-group .dial svg{max-width:100%}
   .usage-popover .dial{display:flex;flex-direction:column;align-items:center;gap:3px;width:84px}
   .usage-popover .dial svg{width:62px;height:62px;overflow:visible}
   .usage-popover .dial .t{fill:none;stroke:rgb(var(--theme-ink-rgb) / .14);stroke-width:5}
@@ -8962,14 +8968,15 @@ function usageProviderName(p){return p==='claude'?'Claude':p==='codex'?'Codex':p
 const USAGE_LOGO={claude:'assets/anthropic.svg',codex:'assets/openai.svg',antigravity:'cockpit-assets/google.svg',dsh:'cockpit-assets/deepseek.svg'};
 function usageVisibleWindows(prov){
   return prov.provider==='antigravity'
-    ?prov.windows.filter(w=>w.limit!=='Claude and GPT models')
+    ?prov.windows.filter(w=>w.limit!=='Gemini 4 Argon')
     :prov.windows;
 }
 function usageMainWindows(prov){
-  return usageVisibleWindows(prov).filter(w=>!w.extra||(prov.provider==='antigravity'&&w.limit==='Gemini Models'));
+  return usageVisibleWindows(prov).filter(w=>!w.extra||(prov.provider==='antigravity'&&
+    (w.limit==='Gemini Models'||w.limit==='Claude and GPT models')));
 }
 function usageBinding(prov){
-  const windows=prov.provider==='antigravity'?usageVisibleWindows(prov):usageMainWindows(prov);
+  const windows=usageMainWindows(prov);
   return windows.slice().sort((a,b)=>a.remaining_percent-b.remaining_percent)[0]||null;}
 function renderUsagePill(){
   const pill=document.getElementById('usageBtn');
@@ -9051,16 +9058,28 @@ function renderUsagePopover(){
     sec.appendChild(head);
     if(!windows.length){const e=document.createElement('div');e.className='up-empty';
       e.textContent='no windows';sec.appendChild(e);return sec;}
-    const dials=document.createElement('div');dials.className='up-dials';
     if(prov.provider==='antigravity'){
-      const ordered=main.slice().sort((a,b)=>(a.window_seconds||Infinity)-(b.window_seconds||Infinity));
-      for(const w of [...ordered,...windows.filter(w=>!main.includes(w))]){
-        const label=w.limit&&w.limit!=='Gemini Models'
-          ?w.limit.replace(/^Gemini(?:\s+\d+)?\s+/i,''):w.label;
-        dials.appendChild(usageDial(w,label));
+      const buckets=new Map();
+      for(const w of windows){
+        const group=w.limit||'Other models';
+        if(!buckets.has(group))buckets.set(group,[]);
+        buckets.get(group).push(w);
       }
-      sec.appendChild(dials);return sec;
+      const priority=['Gemini Models','Claude and GPT models'];
+      const ordered=[...priority.filter(group=>buckets.has(group)),...buckets.keys().filter(group=>!priority.includes(group))];
+      const groups=document.createElement('div');groups.className='up-quota-groups';
+      for(const group of ordered){
+        const section=document.createElement('div');section.className='up-quota-group';
+        const title=document.createElement('div');title.className='up-quota-group-name';
+        title.textContent=group==='Gemini Models'?'Gemini':group==='Claude and GPT models'?'Claude / GPT':group;
+        const row=document.createElement('div');row.className='up-dials';
+        buckets.get(group).slice().sort((a,b)=>(a.window_seconds||Infinity)-(b.window_seconds||Infinity))
+          .forEach(w=>row.appendChild(usageDial(w)));
+        section.append(title,row);groups.append(section);
+      }
+      sec.append(groups);return sec;
     }
+    const dials=document.createElement('div');dials.className='up-dials';
     main.forEach(w=>dials.appendChild(usageDial(w)));sec.appendChild(dials);
     /* named additional limits (Codex Spark …) are a separate pool: show them
        under their own name, and as one line when nothing has drawn on them */
