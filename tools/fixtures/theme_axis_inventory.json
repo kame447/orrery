@@ -2,8 +2,8 @@
   "axes": {
     "background": {
       "effect": {
-        "digest": "8ba1c691b94762f24288b8e60e24763d412b4c8668929a20b8eaaa5f44bd5883",
-        "expected": 375,
+        "digest": "2e652bcc4df7ac251c08754b868a0d839d713b2cb4df07add1cb89299eba2cce",
+        "expected": 377,
         "records": [
           {
             "property": "background",
@@ -1479,6 +1479,16 @@
             "property": "color",
             "selector": ".pane-out-chip .back",
             "value": "var(--ink-faint)"
+          },
+          {
+            "property": "border-bottom",
+            "selector": ".tmux-restart-notice:not(:empty)",
+            "value": "1px solid var(--hair)"
+          },
+          {
+            "property": "background",
+            "selector": ".tmux-restart-notice:not(:empty)",
+            "value": "var(--panel)"
           },
           {
             "property": "stroke",
@@ -4733,7 +4743,7 @@
       }
     }
   },
-  "inventory_digest": "ed53dd0da50e87d3816eb60b31e5acecd0d4aec418e1d3429b1c8eef394b5ea5",
+  "inventory_digest": "d32aa18d6df02ab461454a4b47251760ee401ee29b0e4b1c25a05924c273a819",
   "rules": {
     "dynamic": "immutable pre-apply eligible-element snapshot",
     "glow": "classified selector/property declaration surfaces; mutate mode=scale components",
@@ -4745,9 +4755,9 @@
     "visibility": "pre-apply rendered nonzero box intersecting viewport"
   },
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "52a1d471c8d6c23144a572cf50817eb93f01f0b6b82851254689068361d1f544",
+  "source_digest": "575efc29453ebf54c07f8e1d394f06eb6e909a7718de34fc5930d357d7612f94",
   "source_files": {
-    "bridge/cockpit.html": "d98f6f40ab88f883e717bed5b414b5788a5568fc7885105559d24f82ff34a0a9",
+    "bridge/cockpit.html": "5aca7acf9e630150198cad2382294dcd299b1f025d9c700a5f8dce182ce3944e",
     "bridge/mail_view.css": "d52a28452c2c494c60f273750106737ac3b6180c7e6e088a5eef29e1dd2cd7ab",
     "bridge/orrery_view.css": "ad0adcc4a4bc1867240ea68bb37c36d1bdd73b8e198c7e5ebba92343c78c26cd"
   },

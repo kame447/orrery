@@ -66,7 +66,7 @@ REPO_ROOT = HERE.parent
 MAX_CLIENT_SESSIONS = 12
 RECORDER_ROSTER_SECONDS = 5
 SESSION_FORMAT = (
-    "#{session_name}\t#{session_attached}\t#{session_windows}\t#{session_created}"
+    "#{session_name}\t#{session_attached}\t#{session_windows}\t#{session_created}\t#{pid}"
 )
 CLIENT_CONTROL_MODE_FORMAT = "#{client_control_mode}"
 
@@ -917,6 +917,12 @@ def list_tmux_sessions(tmux_bin: str) -> list[dict[str, Any]]:
             sessions.append(dict(session=target.name,attached=False,interactive=False,windows=1,created=0,
                 catalog_truncated=tmux_bin.truncated,**target.ref))
         return sessions
+    # A concurrent first pin must not turn an older roster reply into a warning.
+    watched_pid = None
+    if isinstance(tmux_bin, LegacyTargetBoundary):
+        with tmux_bin._pin_lock:
+            if tmux_bin.pin is not None:
+                watched_pid = tmux_bin.pin['server_pid']
     result = subprocess.run(
         tmux_argv(tmux_bin, "list-sessions", "-F", SESSION_FORMAT),
         capture_output=True,
@@ -935,10 +941,18 @@ def list_tmux_sessions(tmux_bin: str) -> list[dict[str, Any]]:
     sessions: list[dict[str, Any]] = []
     for line in result.stdout.splitlines():
         fields = line.split("\t")
-        if len(fields) != 4:
+        if len(fields) != 5:
             continue
-        session, attached, windows, created = fields
+        session, attached, windows, created, server_pid = fields
         try:
+            # The normal roster query sees the current PID even when an
+            # inherited TMUX points at the same socket with the old PID.
+            if watched_pid is not None:
+                with tmux_bin._pin_lock:
+                    if (tmux_bin.pin is not None
+                            and tmux_bin.pin['server_pid'] == watched_pid):
+                        tmux_bin.observe_server_pid(
+                            int(server_pid) if server_pid.isdecimal() else None)
             sessions.append(
                 {
                     "session": session,
@@ -2505,19 +2519,20 @@ async def conversation_reference(request: web.Request, *, reveal: bool = False) 
     headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',
              'Content-Security-Policy':"default-src 'none'; frame-ancestors 'none'"}
     try:
-        thumbnail=False
+        thumbnail=mobile=False
         if reveal:
             if request.query:raise PreviewUnavailable('invalid_query')
             payload=await request.json()
             if not isinstance(payload,dict) or set(payload)!={'ref'}:raise PreviewUnavailable('invalid_query')
             ref=payload['ref']
         else:
-            if (set(request.query) not in ({'ref'},{'ref','thumbnail'})
+            if (set(request.query)-{'ref','thumbnail','mobile'}
                     or len(request.query.getall('ref',[]))!=1
-                    or ('thumbnail' in request.query and request.query.getall('thumbnail')!=['1'])):
+                    or any(request.query.getall(key,['1'])!=['1'] for key in ('thumbnail','mobile'))):
                 raise PreviewUnavailable('invalid_query')
             ref=request.query['ref']
             thumbnail=request.query.get('thumbnail')=='1'
+            mobile=request.query.get('mobile')=='1'
         if not isinstance(ref,str) or not re.fullmatch(r'[A-Za-z0-9_-]{32}',ref):raise PreviewUnavailable('invalid_reference')
         # Fresh has only a public text projection. Never bypass it by discovering
         # provider paths through another runtime route.
@@ -2525,7 +2540,7 @@ async def conversation_reference(request: web.Request, *, reveal: bool = False) 
         store=request.app[CONVERSATION_REFERENCES_KEY]
         name=store.owner(ref)
         row=await conversation_bound_row(request,name)
-        result=await asyncio.to_thread(store.read,ref,row,reveal=reveal,thumbnail=thumbnail)
+        result=await asyncio.to_thread(store.read,ref,row,reveal=reveal,thumbnail=thumbnail,mobile=mobile)
         current=await conversation_bound_row(request,name)
         if conversation_binding(row)!=conversation_binding(current):raise PreviewUnavailable('reference_expired')
         if reveal:
@@ -3824,23 +3839,38 @@ def resolve_shown_path(text: str) -> pathlib.Path | None:
     return matches[0] if matches and len(matches) == 1 else None
 
 
-def probe_shown_path(text: str) -> tuple[str, list[pathlib.Path]] | None:
+def probe_shown_path(text: str, *, cwd: Path | None = None) -> tuple[str, list[pathlib.Path]] | None:
     """The longest leading part of ``text`` that names an existing path, with
     what it names. One budget covers every prefix tried."""
-    if not (text.startswith("/") or text.startswith("~")):
+    if cwd is None and not text.startswith(("/", "~")):
         return None
     # Candidate ends: before any ASCII / ideographic space and before any
     # non-ASCII character (prose such as "…/logs はうまくいかない" follows a
     # path without a space), plus the end of the text. Longest first.
     ends = [
         i for i, ch in enumerate(text)
-        if ch in " \u3000)]}>\"'`" or (not ch.isascii() and ch != ELLIPSIS)
+        if ch in " \u3000)]}>\"'`" or (cwd is None and not ch.isascii() and ch != ELLIPSIS)
     ]
     ends.append(len(text))
     seen: set[str] = set()
     budget = WalkBudget()
     for end in sorted(set(ends), reverse=True):
-        candidate = text[:end].rstrip(" \u3000").rstrip(".,;:!?")
+        candidate = text[:end].rstrip(" \u3000")
+        stripped = candidate.rstrip(".,;:!?")
+        if cwd is not None:
+            # Use literal names before interpreting punctuation or :line:column.
+            for name in (candidate, stripped, re.sub(r":[0-9]+(?::[0-9]+)?$", "", stripped)):
+                if name in seen or not re.fullmatch(r"[^/:]+/[^/].*", name):
+                    continue
+                seen.add(name)
+                path = cwd / name
+                try:
+                    if path.exists():
+                        return stripped if name != candidate else candidate, [path]
+                except OSError:
+                    continue
+            continue
+        candidate = stripped
         if len(candidate) < 2 or candidate in seen:
             continue
         seen.add(candidate)
@@ -3875,7 +3905,14 @@ async def path_probe(request: web.Request) -> web.Response:
     text = payload.get("text") if isinstance(payload, dict) else None
     if not isinstance(text, str) or not text or len(text) > 4096 or "\x00" in text:
         return web.json_response({"ok": False, "error": "text is required"}, status=400)
-    found = await asyncio.to_thread(probe_shown_path, text)
+    cwd = None
+    relative = not text.startswith(("/", "~"))
+    if relative:
+        session, pane_id = payload.get("session"), payload.get("paneId")
+        if not isinstance(session, str) or not isinstance(pane_id, str) or not session or not pane_id:
+            return web.json_response({"ok": False, "error": "session and paneId are required"}, status=400)
+        cwd = await pane_probe_cwd(request.app, session, pane_id)
+    found = await asyncio.to_thread(probe_shown_path, text, cwd=cwd) if not relative or cwd else None
     if found is None:
         return web.json_response({"ok": False, "error": "no such path"}, status=404)
     shown, matches = found
@@ -3885,6 +3922,35 @@ async def path_probe(request: web.Request) -> web.Response:
         # resolves to by the time it is clicked.
         payload["resolved"] = str(matches[0])
     return web.json_response(payload)
+
+
+async def pane_probe_cwd(app: web.Application, session: str, wire_pane: str) -> Path | None:
+    manager = app.get(BRIDGE_MANAGER_KEY)
+    if manager is None:
+        return None
+    keys = {key for key, state in manager.states.items() if state.bridge.config.session == session}
+    state = manager._find_attached_pane(keys, wire_pane)
+    if state is None or state.bridge._closed:
+        return None
+    bridge = state.bridge
+    target = bridge.config.tmux_bin
+    pane_id = target.pane_id if isinstance(target, FreshPaneBoundary) else wire_pane
+    pane = bridge.panes[pane_id]
+    try:
+        result = await bridge.send_command([
+            "display-message", "-p", "-t", pane_id,
+            "#{session_id}\t#{window_id}\t#{pane_id}\t#{pane_current_path}",
+        ], timeout=3)
+    except (OSError, RuntimeError, asyncio.TimeoutError):
+        return None
+    if (not result or not result.ok or result.overflow or len(result.lines) != 1
+            or bridge._closed or manager._find_attached_pane(keys, wire_pane) is not state):
+        return None
+    fields = result.lines[0].split("\t", 3)
+    if len(fields) != 4 or fields[:3] != [pane.session_id, pane.window_id, pane_id]:
+        return None
+    cwd = fields[3]
+    return Path(cwd) if cwd.startswith("/") and not any(ch in cwd for ch in "\x00\r\n") else None
 
 
 FILE_MANAGER_NAMES = {"mac": "Finder", "wsl": "Explorer", "linux": "the file manager"}
@@ -4544,10 +4610,17 @@ async def serve_sessions(request: web.Request) -> web.Response:
 SESSIONS_REFRESH_SECONDS = 5
 
 
+def _session_list_message(tmux_bin, sessions: list[dict[str, Any]]) -> dict[str, Any]:
+    message = {"type": "sessions", "sessions": sessions}
+    if isinstance(tmux_bin, LegacyTargetBoundary) and tmux_bin.tmux_restarted:
+        message["tmuxRestarted"] = True
+    return message
+
+
 async def _session_list_refresher(
     peer: WebSocketPeer,
     tmux_bin: str,
-    initial: list[dict[str, Any]],
+    initial: dict[str, Any],
 ) -> None:
     """Keep the client's session list fresh.
 
@@ -4562,10 +4635,11 @@ async def _session_list_refresher(
             sessions = await shared_session_list(tmux_bin)
         except (OSError,TargetRefused) as exc:
             _warn_tmux_gone(tmux_bin, exc)
-            continue
-        if sessions != last:
-            last = sessions
-            await peer.send_json({"type": "sessions", "sessions": sessions})
+            sessions = last["sessions"]
+        message = _session_list_message(tmux_bin, sessions)
+        if message != last:
+            last = message
+            await peer.send_json(message)
 
 
 async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
@@ -4574,20 +4648,18 @@ async def websocket_handler(request: web.Request) -> web.WebSocketResponse:
     peer = WebSocketPeer(response)
     attached: set[str] = set()
     manager = request.app[BRIDGE_MANAGER_KEY]
+    tmux_bin = request.app[TMUX_BIN_KEY]
     refresher: asyncio.Task[None] | None = None
 
     try:
         try:
-            sessions = await asyncio.to_thread(
-                list_tmux_sessions, request.app[TMUX_BIN_KEY]
-            )
+            sessions = await asyncio.to_thread(list_tmux_sessions, tmux_bin)
         except OSError as exc:
-            _warn_tmux_gone(request.app[TMUX_BIN_KEY], exc)
+            _warn_tmux_gone(tmux_bin, exc)
             sessions = []
-        await peer.send_json({"type": "sessions", "sessions": sessions})
-        refresher = asyncio.create_task(
-            _session_list_refresher(peer, request.app[TMUX_BIN_KEY], sessions)
-        )
+        initial = _session_list_message(tmux_bin, sessions)
+        await peer.send_json(initial)
+        refresher = asyncio.create_task(_session_list_refresher(peer, tmux_bin, initial))
 
         async for message in response:
             if message.type == WSMsgType.TEXT:
