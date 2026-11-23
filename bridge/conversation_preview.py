@@ -1,4 +1,4 @@
-"""Recorded references and bounded previews, plus explicit local image clicks.
+"""Recorded references and bounded previews, plus explicit local file clicks.
 
 No path registration API. An ID is useful only with the same authoritative
 agent binding, pinned transcript inode and unchanged originating record.
@@ -28,26 +28,29 @@ from conversation_images import input_images, saved_path, dsh_image_path
 MAX_RECORD=1024*1024
 MAX_TEXT=128*1024
 MAX_IMAGE=8*1024*1024
+# The phone relay independently checks these bounds on the PNG it publishes.
+MOBILE_IMAGE_BYTES=4*1024*1024
+MOBILE_IMAGE_PIXELS=8_000_000
 TEXT_EXT={'.txt','.md','.py','.js','.mjs','.cjs','.ts','.tsx','.jsx','.css','.scss','.json','.jsonl',
           '.yaml','.yml','.toml','.ini','.cfg','.csv','.tsv','.xml','.html','.svg','.sh','.bash','.zsh',
           '.rs','.go','.c','.h','.cpp','.hpp','.java','.kt','.sql','.diff','.patch','.log','.rst'}
 IMAGE_EXT={'.png','.jpg','.jpeg','.gif','.webp'}
 
 
-def clicked_image(value):
-    """Explicit local path click: image-only, independent of record grants.
+def clicked_path(value):
+    """Explicit local path click, independent of record grants.
 
     Resolve aliases first, then use the same no-follow descriptor walk and
-    raster limits as recorded previews. Recheck the alias after the read.
+    preview limits as recorded references. Recheck the alias after the read.
     """
     if (not isinstance(value,str) or len(value)>2000
             or not value.startswith(('/', '~/')) or re.search(r'[\x00-\x1f\x7f]',value)):
         raise PreviewUnavailable('preview_path_denied')
-    original=Path(value).expanduser()
-    if original.suffix.lower() not in IMAGE_EXT:raise PreviewUnavailable('preview_type_denied')
     try:
+        original=Path(value).expanduser()
         path=original.resolve(strict=True)
-        if path.suffix.lower() not in IMAGE_EXT:raise PreviewUnavailable('preview_type_denied')
+        if (original.suffix.lower() in IMAGE_EXT)!=(path.suffix.lower() in IMAGE_EXT):
+            raise PreviewUnavailable('preview_type_denied')
         result=ReferenceStore().read_file(path)
         if original.resolve(strict=True)!=path:raise PreviewUnavailable('preview_changed')
         result.pop('notice',None)
@@ -119,6 +122,12 @@ def open_file(path):
     finally:
         if fd is not None:os.close(fd)
         if parent is not None:os.close(parent)
+
+
+def resize_to_pixels(image, limit):
+    width,height=image.size
+    scale=(limit/(width*height))**0.5
+    return image.resize((max(1,int(width*scale)),max(1,int(height*scale))),Image.Resampling.LANCZOS)
 
 
 class ReferenceStore:
@@ -223,22 +232,22 @@ class ReferenceStore:
             self.prune()
         if refs:event['references']=refs;event['input_images']=True
 
-    def read_input(self,image,stream,*,thumbnail=False):
+    def read_input(self,image,stream,*,thumbnail=False,mobile=False):
         if image['kind']=='data':
             data=base64.b64decode(image['url'].split(',',1)[1],validate=True)
             if len(data)>MAX_IMAGE:raise PreviewUnavailable('preview_too_large')
-            return self.raster(data,thumbnail=thumbnail)
+            return self.raster(data,thumbnail=thumbnail,mobile=mobile)
         if image['kind']=='dsh':
             path=dsh_image_path(stream.path,image['digest'])
             if path is None:raise PreviewUnavailable('preview_unavailable')
-            return self.read_file(path,thumbnail=thumbnail,image_digest=image['digest'])
+            return self.read_file(path,thumbnail=thumbnail,mobile=mobile,image_digest=image['digest'])
         path=saved_path(image['path'])
         if path is None:raise PreviewUnavailable('reference_expired')
-        result=self.read_file(path,thumbnail=thumbnail)
+        result=self.read_file(path,thumbnail=thumbnail,mobile=mobile)
         if result['kind']!='image' or saved_path(image['path'])!=path:raise PreviewUnavailable('reference_expired')
         return result
 
-    def read(self,ref,row,*,reveal=False,thumbnail=False):
+    def read(self,ref,row,*,reveal=False,thumbnail=False,mobile=False):
         with self.lock:
             self.prune();entry=self.refs.get(ref)
             if not entry or binding(row)!=entry['row']:raise PreviewUnavailable('reference_expired')
@@ -253,7 +262,7 @@ class ReferenceStore:
                     if reveal:raise PreviewUnavailable('preview_unavailable')
                     images=input_images(item)
                     if entry['index']>=len(images) or self.image_key(images[entry['index']])!=entry['key'][-1]:raise PreviewUnavailable('reference_expired')
-                    result=self.read_input(images[entry['index']],stream,thumbnail=thumbnail)
+                    result=self.read_input(images[entry['index']],stream,thumbnail=thumbnail,mobile=mobile)
                     result=dict(result,label=f"Input image {entry['index']+1}.png",notice='Recorded input image')
                 else:
                     projection=extract_artifacts(item);paths=projection['paths']
@@ -261,7 +270,7 @@ class ReferenceStore:
                     value=paths[entry['index']];shown=value in projection['shown_paths']
                     path=self.policy(value,workspace(stream),shown=shown)
                     if str(path)!=entry['key'][-1]:raise PreviewUnavailable('reference_expired')
-                    result=self.read_file(path,thumbnail=thumbnail)
+                    result=self.read_file(path,thumbnail=thumbnail,mobile=mobile)
                 # Revalidate both the source record and file descriptor identity
                 # before publishing; append-only transcript growth is allowed.
                 if record_at(stream,entry['offset'])[1]!=entry['digest']:raise PreviewUnavailable('reference_expired')
@@ -278,19 +287,21 @@ class ReferenceStore:
             if not entry:raise PreviewUnavailable('reference_expired')
             return entry['row'][0]
 
-    def read_file(self,path,*,thumbnail=False,image_digest=None):
+    def read_file(self,path,*,thumbnail=False,mobile=False,image_digest=None):
         is_image=image_digest is not None or path.suffix.lower() in IMAGE_EXT
-        maximum=MAX_IMAGE if is_image else MAX_TEXT
+        maximum=MAX_IMAGE if is_image else MAX_TEXT*4  # Up to four UTF-8 bytes per character.
+        too_large='preview_too_large' if is_image else 'preview_text_too_large'
         with open_file(path) as (fd,info):
-            if info.st_size>maximum:raise PreviewUnavailable('preview_too_large')
+            if info.st_size>maximum:raise PreviewUnavailable(too_large)
             data=os.read(fd,maximum+1)
-            if len(data)>maximum:raise PreviewUnavailable('preview_too_large')
+            if len(data)>maximum:raise PreviewUnavailable(too_large)
             if image_digest is not None and hashlib.sha256(data).hexdigest()!=image_digest:raise PreviewUnavailable('preview_changed')
-            if is_image:result=self.raster(data,thumbnail=thumbnail)
+            if is_image:result=self.raster(data,thumbnail=thumbnail,mobile=mobile)
             else:
                 try:text=data.decode('utf-8')
-                except UnicodeError:raise PreviewUnavailable('preview_type_denied') from None
-                if '\x00' in text or any(ord(c)<32 and c not in '\n\r\t' for c in text):raise PreviewUnavailable('preview_type_denied')
+                except UnicodeError:raise PreviewUnavailable('preview_not_text') from None
+                if len(text)>MAX_TEXT:raise PreviewUnavailable(too_large)
+                if any(ord(c)<32 and c not in '\n\r\t' for c in text):raise PreviewUnavailable('preview_not_text')
                 result=dict(kind='text',mime='text/plain',text=text)
             after=os.fstat(fd)
             with open_file(path) as (_,current):
@@ -298,7 +309,7 @@ class ReferenceStore:
                 if signature(info)!=signature(after) or signature(info)!=signature(current):raise PreviewUnavailable('preview_changed')
         return dict(result,label=path.name[:160],notice='Current file · may differ from the recorded edit')
 
-    def raster(self,data,*,thumbnail=False):
+    def raster(self,data,*,thumbnail=False,mobile=False):
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter('error',Image.DecompressionBombWarning)
@@ -311,12 +322,20 @@ class ReferenceStore:
                     # Copy only pixels: original EXIF/ICC/text/animation metadata
                     # never leaves this process.
                     pixels=Image.frombytes('RGBA',clean.size,clean.tobytes())
-                    output=io.BytesIO();pixels.save(output,format='PNG')
-                    if output.tell()>MAX_IMAGE:raise PreviewUnavailable('preview_too_large')
-                    # 原寸と同じ制限を通した後、会話内の表示だけ小さい PNG にする。
                     if thumbnail:
                         pixels.thumbnail((320,200),Image.Resampling.LANCZOS)
+                    elif mobile and width*height>MOBILE_IMAGE_PIXELS:
+                        pixels=resize_to_pixels(pixels,MOBILE_IMAGE_PIXELS)
+                    limit=MOBILE_IMAGE_BYTES if mobile else MAX_IMAGE
+                    output=io.BytesIO();pixels.save(output,format='PNG')
+                    if output.tell()>limit:
+                        # Allow for four RGBA bytes per pixel, PNG row filters
+                        # and compression overhead even for noisy images.
+                        pixels=resize_to_pixels(pixels,limit//5)
                         output=io.BytesIO();pixels.save(output,format='PNG')
+                    if output.tell()>limit:raise PreviewUnavailable('preview_too_large')
+                    # The relay checks its reported dimensions against the PNG header.
+                    if mobile or not thumbnail:width,height=pixels.size
             return dict(kind='image',mime='image/png',data=base64.b64encode(output.getvalue()).decode('ascii'),width=width,height=height)
         except PreviewUnavailable:
             raise
