@@ -52,7 +52,7 @@ from usage_probe import (
 )
 from conversation_history import (HistoryUnavailable, UnchangedPolls, bound_agent, bound_signature, open_reader)
 from conversation_mail import received as recorded_mail
-from conversation_preview import ReferenceStore, PreviewUnavailable, clicked_image, binding as conversation_binding
+from conversation_preview import ReferenceStore, PreviewUnavailable, clicked_path, binding as conversation_binding
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8791
@@ -2480,11 +2480,15 @@ async def serve_conversation(request: web.Request) -> web.Response:
                 raise HistoryUnavailable("history_changed")
             if not isinstance(payload, dict) or payload.get("ok") is not True:
                 raise HistoryUnavailable("history_unavailable")
-            if payload.get("source") == "claude":
+            source = payload.get("source")
+            if source == "claude":
                 raise HistoryUnavailable("claude_next_phase")
-            if (payload.get("source") != "codex" or payload.get("history_binding") != "bound"
+            # Codex and Hermes are the fresh providers whose history the
+            # dashboard projects from a verified native receipt.
+            if (source not in {"codex", "hermes"} or payload.get("history_binding") != "bound"
                     or any(payload.get(key) != value for key, value in target.ref.items())):
                 raise HistoryUnavailable("history_unconfirmed")
+            provider = source
             events = []
             occurrences: dict[str, int] = {}
             for event in payload.get("events", []):
@@ -2573,14 +2577,14 @@ async def reveal_conversation_reference(request: web.Request) -> web.Response:
 
 
 async def preview_clicked_path(request: web.Request) -> web.Response:
-    """Own-page JSON POST only: read a clicked local image, never text."""
+    """Own-page JSON POST only: preview a clicked local path."""
     headers={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff',
              'Content-Security-Policy':"default-src 'none'; frame-ancestors 'none'"}
     try:
         payload=await request.json()
         if request.query or not isinstance(payload,dict) or set(payload)!={'path'}:
             raise PreviewUnavailable('invalid_query')
-        result=await asyncio.to_thread(clicked_image,payload['path'])
+        result=await asyncio.to_thread(clicked_path,payload['path'])
         return web.json_response(dict(result,ok=True),headers=headers)
     except PreviewUnavailable as exc:
         return web.json_response({'ok':False,'error':str(exc)},status=400,headers=headers)
@@ -3364,6 +3368,7 @@ def host_platform() -> dict[str, Any]:
         "host": kind,
         "distro": wsl_distro() if kind == "wsl" else None,
         "windows_interop": interop,
+        "home_dir": str(Path.home()),
         "terminal": terminal,
         # The macOS pasteboard reader, or Windows PowerShell under WSL.
         "file_paste": kind == "mac" or (kind == "wsl" and windows_clipboard_problem() is None),
