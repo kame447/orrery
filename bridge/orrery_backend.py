@@ -3691,7 +3691,10 @@ async def open_url(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "error": "url is required"}, status=400)
     if any(ch.isspace() or ord(ch) < 32 for ch in url):
         return web.json_response({"ok": False, "error": "url contains whitespace"}, status=400)
-    parts = urllib.parse.urlsplit(url)
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return web.json_response({"ok": False, "error": "invalid URL"}, status=400)
     if parts.scheme not in ("http", "https") or not parts.netloc:
         return web.json_response(
             {"ok": False, "error": "only http(s) URLs can be opened"}, status=400

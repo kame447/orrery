@@ -35,3 +35,30 @@ def test_write_routes_require_json(monkeypatch, tmp_path):
                         assert response.status == 200
             assert len(calls) == 2 * len(routes)
     asyncio.run(scenario())
+
+
+def test_open_url_rejects_malformed_authority_without_launching(monkeypatch, tmp_path):
+    launched = []
+
+    def configure(ob):
+        monkeypatch.setattr(ob, 'launch_url', launched.append)
+
+    async def scenario():
+        async with private_app(monkeypatch, tmp_path, configure) as (_, client, base):
+            for url, error in (
+                ('https://[broken/path', 'invalid URL'),
+                ('https://example.com／bad', 'invalid URL'),
+                ('file:///tmp/test', 'only http(s) URLs can be opened'),
+                ('https://example.com/a b', 'url contains whitespace'),
+            ):
+                async with client.post(base + '/telemetry/open-url', json={'url': url}) as response:
+                    assert response.status == 400, url
+                    assert await response.json() == {'ok': False, 'error': error}
+            assert launched == []
+            url = 'https://example.com/?a=1&b=%22'
+            async with client.post(base + '/telemetry/open-url', json={'url': url}) as response:
+                assert response.status == 200
+                assert await response.json() == {'ok': True}
+            assert launched == [url]
+
+    asyncio.run(scenario())
