@@ -2,8 +2,8 @@
   "axes": {
     "background": {
       "effect": {
-        "digest": "499db5b10b4335721964384f3f93aa07c474aae7ca7fc233c58ee5312f6d0670",
-        "expected": 291,
+        "digest": "640cbca92a2932677e8ab2fe7a335d4ec662ec359ec837f235de1ed3e52d43f9",
+        "expected": 293,
         "records": [
           {
             "property": "background",
@@ -1339,6 +1339,16 @@
             "property": "box-shadow",
             "selector": ".mailfilters",
             "value": "0 0 0 1px var(--hair),0 10px 24px var(--theme-shadow-low,rgb(0 0 0 / .28))"
+          },
+          {
+            "property": "border",
+            "selector": ".mail-clear-filter",
+            "value": "1px solid var(--hair)"
+          },
+          {
+            "property": "color",
+            "selector": ".mail-clear-filter",
+            "value": "var(--ink)"
           },
           {
             "property": "border",
@@ -2779,7 +2789,7 @@
         "unit": "element"
       },
       "source": {
-        "digest": "b5f17703d9c8643857f378f472074bc371b2ef71897bd047441ca120b5fb099f",
+        "digest": "a76290d1f7333a326ccddd22af8313d8ddf58f035df6e606aa521e581d0673a7",
         "expected": 81,
         "records": [
           {
@@ -3343,7 +3353,7 @@
             "value": "6px"
           },
           {
-            "line": 82,
+            "line": 94,
             "property": "font-size",
             "selector": ".mailview-host time",
             "source": "bridge/mail_view.css",
@@ -3539,7 +3549,7 @@
       }
     }
   },
-  "inventory_digest": "d2c9a9ead3bf1dd03521fbbcd617f3a0b80dd63bdb09e7b52315d7882482a1d9",
+  "inventory_digest": "fcf5b870b88df9d6c5794f8fa3f59f54ec26212c31168436c793ca133282277d",
   "rules": {
     "dynamic": "immutable pre-apply eligible-element snapshot",
     "glow": "classified selector/property declaration surfaces; mutate mode=scale components",
@@ -3551,10 +3561,10 @@
     "visibility": "pre-apply rendered nonzero box intersecting viewport"
   },
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "0e91f2980acd4558f444637f04ff63d6d06a54c7790bf261343bcb1aec9153d0",
+  "source_digest": "f665caa06eefc459176990f9e71112a69f3ed552deccbf0ce659849f2cf66f0d",
   "source_files": {
     "bridge/cockpit.html": "894a8b4233e4f0b44cb9fbf472574ecdc1ee8dbfe104d40b0db087da34467a02",
-    "bridge/mail_view.css": "05d451c2c4dc20b6a21d1c2f901793757b25f7ed0e0fb8a941f9b7fc0ac9faf9",
+    "bridge/mail_view.css": "7139ca3c6fc352f2f5213e06b589f2919befb93e79ff858c147d20c3f28f1a8a",
     "bridge/orrery_view.css": "1ed647e68a0e856403545f04dbfb5d331fb7c4e1b8fef3ccc94d18cfc76d6775"
   },
   "surface": "cockpit",

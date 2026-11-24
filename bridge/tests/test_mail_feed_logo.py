@@ -158,8 +158,10 @@ def test_saved_recipient_mode_is_respected_and_mail_uses_compact_type(cockpit):
       .every(el=>Number.parseFloat(getComputedStyle(el).fontSize)<=12)""")
     assert js("getComputedStyle(document.querySelector('.mail-head')).fontSize") == '13px'
     client.call('Page.addScriptToEvaluateOnNewDocument', source="localStorage.setItem('oc-mail-view','recipient');")
+    js("window.__mailOldDocument = true")
     client.call('Page.reload', ignoreCache=True)
-    wait("Boolean(document.getElementById('mailViewBtn')?.querySelector('svg'))")
+    wait("!window.__mailOldDocument && document.readyState === 'complete' && "
+         "Boolean(document.getElementById('mailViewBtn')?.querySelector('svg'))")
     assert js("document.getElementById('mailViewBtn').title") == 'Show thread timeline'
 
 
