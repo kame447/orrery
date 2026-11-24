@@ -1247,6 +1247,8 @@
   .local-provider-badge .provider-logo[hidden]{display:none}
   .usage-popover .up-balance-warning{color:var(--amber)}
   .usage-popover .up-balance-low{color:var(--theme-status-alert,#d2685e)}
+  .usage-popover .up-name.stale::after{content:"";display:inline-block;width:6px;height:6px;
+    margin-inline-start:6px;vertical-align:middle;border:1px solid currentColor;border-radius:50%;opacity:.55}
   .tmux-restart-notice:not(:empty){
     padding:8px 14px;border-bottom:1px solid var(--hair);
     background:var(--panel);color:var(--amber);font-size:12px;line-height:1.4;
@@ -4023,9 +4025,9 @@
       }
     }
   },
-  "inventory_digest": "1986ecfd431ef9db54d6530ac2416dffdb1ff76e141030df287acb131ab76bbe",
+  "inventory_digest": "8275c1d55656f5d15af70c949ccb3da0477d0db29afe3a9403433e17f4660b08",
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "d4e2e5e46899090c8f60b4d3a2030ed00425205ce7aa891ba9cdf18847e5ddb6",
+  "source_digest": "60baa42165e17f541ed701dc803591cb5d301901eeba53c3cc1732b42f48489f",
   "surface": "cockpit",
   "version": 1
 }
@@ -8529,10 +8531,16 @@ function renderUsagePopover(){
     const sec=document.createElement('section');sec.className='up-prov';
     const head=document.createElement('div');head.className='up-head';
     head.innerHTML=`<span class="up-name"></span><span class="up-reset"></span>`;
-    const logo=USAGE_LOGO[prov.provider];
-    head.querySelector('.up-name').textContent=usageProviderName(prov.provider)+(prov.status==='stale'?' · stale':'');
+    const logo=USAGE_LOGO[prov.provider],name=head.querySelector('.up-name');
+    const providerName=usageProviderName(prov.provider);
+    name.textContent=providerName;
+    if(prov.status==='stale'){
+      name.classList.add('stale');
+      name.title=providerName+(prov.observed_at?` · stale · observed ${usageClock(prov.observed_at)}`:' · stale');
+      sec.setAttribute('aria-label',providerName+', stale');
+    }
     if(logo){const img=document.createElement('img');img.className='up-logo';img.src=logo;img.alt='';
-      head.querySelector('.up-name').prepend(img);}
+      name.prepend(img);}
     if(prov.measurement_kind==='balance'){
       head.querySelector('.up-reset').textContent=prov.observed_at?'observed '+usageClock(prov.observed_at):'not observed';
       sec.appendChild(head);
