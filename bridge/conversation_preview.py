@@ -23,6 +23,7 @@ from pathlib import Path
 from PIL import Image
 from conversation_artifacts import extract_artifacts
 from conversation_history import open_bound_transcript, assert_transcript_identity, HistoryUnavailable, open_reader
+from conversation_history import conversation_binding as binding
 from conversation_images import input_images, saved_path, dsh_image_path
 
 MAX_RECORD=1024*1024
@@ -61,11 +62,6 @@ def clicked_path(value):
 
 
 class PreviewUnavailable(ValueError): pass
-
-
-def binding(row):
-    keys=('name','program','history_binding','transcript_path','native_session_id','history_session_id','history_receipt_ts','created','mail_instance_id','mail_agent_id')
-    return tuple(row.get(key) for key in keys)
 
 
 def identity(stream):

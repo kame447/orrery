@@ -4025,9 +4025,9 @@
       }
     }
   },
-  "inventory_digest": "5ff1515d2d8dd16c9735c9167bf60f11abb52c33d5160f44581e1614c79eb932",
+  "inventory_digest": "d2c9a9ead3bf1dd03521fbbcd617f3a0b80dd63bdb09e7b52315d7882482a1d9",
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "48366494f35eaadf5a59ccd7056441c94226b4a74c0cdb7c3c7c9e6566543029",
+  "source_digest": "0e91f2980acd4558f444637f04ff63d6d06a54c7790bf261343bcb1aec9153d0",
   "surface": "cockpit",
   "version": 1
 }
@@ -11873,9 +11873,8 @@ const conversationView=(()=>{
         getTarget:captureComposerTarget,onError:text=>showToast(text,true)});
       readerActivity=OrreryReaderActivity.mount({getPanes:()=>panes.values(),
         getProgram:pane=>currentAgents.find(agent=>agent.name===pane.session)?.program,
-        getBinding:pane=>{const agent=currentAgents.find(agent=>agent.name===pane.session);
-          return JSON.stringify([pane.session,agent?.history_binding,agent?.history_session_id,
-            agent?.native_session_id,agent?.history_receipt_ts,agent?.transcript_path,agent?.created]);}});
+        getBinding:pane=>OrreryConversationSource.bindingIdentity(
+          currentAgents.find(agent=>agent.name===pane.session)||{name:pane.session})});
       await asset('link','href','reader_approval.css');
       await asset('script','src','reader_approval.js');
       readerApproval=OrreryReaderApproval.mount({
