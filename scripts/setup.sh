@@ -114,7 +114,10 @@ case "$mail_mode" in
   *) printf 'Unknown --mail value: %s (auto|update|keep)\n' "$mail_mode" >&2; exit 2 ;;
 esac
 read_only=false
-if [ "$check_only" = true ] || [ "$dry_run" = true ]; then read_only=true; fi
+if [ "$check_only" = true ] || [ "$dry_run" = true ]; then
+  read_only=true
+  export PYTHONDONTWRITEBYTECODE=1
+fi
 if [ -z "$COCKPIT_ROOT" ] && [ "$read_only" != true ]; then
   printf 'No cockpit checkout (ORRERY_PLANNED_DIR is only for --check / --dry-run).\n' >&2
   exit 2
@@ -691,6 +694,10 @@ export AGENTSTACK_AUTO_OPEN_CHILD="$(child_window_setting "$ENV_FILE")"
 # ================================================================ 3. plan + confirm
 step "Plan"
 backup_dir="${AGENTSTACK_DIR}/backups"
+claude_mcp_file="${AGENTSTACK_CLAUDE_JSON:-$HOME/.claude.json}"
+claude_settings_file="${AGENTSTACK_CLAUDE_SETTINGS:-$HOME/.claude/settings.json}"
+codex_instructions="${CODEX_HOME:-$HOME/.codex}/AGENTS.md"
+claude_instructions="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/CLAUDE.md"
 say "  This will:"
 say "    - child terminal windows: ${AGENTSTACK_AUTO_OPEN_CHILD} (0: use the cockpit; Open tmux stays available)"
 if [ "$need_uv" = true ]; then say "    - install uv into ~/.local/bin (your shell profile is not changed)"; fi
@@ -717,17 +724,15 @@ case "$mode" in
     say "      with scripts/update.sh: git pull --ff-only, then the installer again"
     ;;
 esac
-say "    - change these 4 things (each is backed up first):"
-say "        1. ~/.claude.json            all your Claude Code sessions: MCP server 'orrery-mail'"
+say "    - change these 4 things (existing files are backed up first):"
+say "        1. ${claude_mcp_file} (Claude Code MCP server 'orrery-mail')"
 say "                                     -> ${mail_url:-http://127.0.0.1:18765/mcp}"
 say "                                     backup: ${backup_dir}/claude-mcp.<time>"
-say "        2. ~/.claude/settings.json   all your Claude Code sessions: ORRERY hooks (file"
-say "                                     reservations, Mail) and permissions are added;"
+say "        2. ${claude_settings_file} (Claude Code hooks and permissions)"
 say "                                     your own entries are kept.  backup: ${backup_dir}/<time>/"
-say "        3. ~/.codex/AGENTS.md        ALL your Codex work (global): ORRERY's marked block only"
+say "        3. ${codex_instructions} (user-wide Codex instructions: ORRERY's marked block)"
 say "                                     backup: next to it, AGENTS.md.bak.<time>"
-say "        4. ${project_key}/CLAUDE.md"
-say "                                     Claude Code in that folder: ORRERY's marked block only"
+say "        4. ${claude_instructions} (user-wide Claude Code instructions: ORRERY's marked block)"
 say "                                     backup: next to it, CLAUDE.md.bak.<time>"
 say "    - run 2 background services: dashboard (port ${dash_port:-8770}) and ORRERY Mail"
 say "    - ${mail_line}"
@@ -1062,10 +1067,10 @@ else
   applied_codex="assume-yes: applied Codex AGENTS.md managed setup"
   applied_claude="assume-yes: applied Claude CLAUDE.md managed setup"
 fi
-show_item "1. ~/.claude.json (MCP)" "$(item_result "$applied_mcp" "Claude MCP already registered" "Skipped Claude MCP\|skipping Claude MCP")"
-show_item "2. ~/.claude/settings.json" "$(item_result "$applied_settings" "" "Skipped Tier1\|skipping Tier1")"
-show_item "3. ~/.codex/AGENTS.md" "$(item_result "$applied_codex" "" "Skipped Codex AGENTS.md\|skipping Codex AGENTS.md")"
-show_item "4. ${project_key}/CLAUDE.md" "$(item_result "$applied_claude" "" "Skipped Claude CLAUDE.md\|skipping Claude CLAUDE.md")"
+show_item "1. ${claude_mcp_file} (MCP)" "$(item_result "$applied_mcp" "Claude MCP already registered" "Skipped Claude MCP\|skipping Claude MCP")"
+show_item "2. ${claude_settings_file}" "$(item_result "$applied_settings" "" "Skipped Tier1\|skipping Tier1")"
+show_item "3. ${codex_instructions}" "$(item_result "$applied_codex" "" "Skipped Codex AGENTS.md\|skipping Codex AGENTS.md")"
+show_item "4. ${claude_instructions}" "$(item_result "$applied_claude" "" "Skipped Claude CLAUDE.md\|skipping Claude CLAUDE.md")"
 
 # What the installer did with ORRERY Mail. An installer that knows the Mail
 # choice ends with a "mail-result:" line; from such an installer, no line (or
