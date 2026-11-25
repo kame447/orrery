@@ -202,14 +202,15 @@ def test_antigravity_mark_follows_catalog_and_selection(tour_browser):
     _, evaluate = tour_browser
     result = evaluate("""(()=>{
       const geminiTab=()=>providerTabs.querySelector('[data-family="gemini"]');
-      spawnCatalog={providers:[{id:'claude',models:[{id:'claude-fixture'}]}]};
+      const deepseek={id:'deepseek',models:[{id:'deepseek-fixture'}]};
+      const gemini={id:'gemini',label:'Antigravity',program:'antigravity',models:[{id:'gemini-fixture'}]};
+      spawnCatalog={providers:[deepseek,{id:'claude',models:[{id:'claude-fixture'}]}]};
       selFamily=null;selProvider=null;selModel=null;selHarness=null;selEffort=null;
       renderProviderTabs();
       const before=Boolean(geminiTab());
-      spawnCatalog.providers.push({
-        id:'gemini',label:'Antigravity',program:'antigravity',models:[{id:'gemini-fixture'}]
-      });
+      spawnCatalog.providers.push(gemini);
       renderProviderTabs();
+      const order=[...providerTabs.querySelectorAll('button')].map(button=>button.dataset.family);
       const tab=geminiTab(),icon=tab.querySelector('img');
       const mark={src:icon.getAttribute('src'),alt:icon.alt,
         title:tab.title,label:tab.getAttribute('aria-label'),enabled:!tab.disabled};
@@ -217,10 +218,14 @@ def test_antigravity_mark_follows_catalog_and_selection(tour_browser):
       const selected=selProvider;
       spawnCatalog.providers.pop();
       renderProviderTabs();
-      return {before,mark,selected,after:Boolean(geminiTab()),fallback:selProvider};
+      const after=Boolean(geminiTab()),fallback=selProvider;
+      spawnCatalog.providers=[deepseek,gemini];
+      renderProviderTabs();
+      return {before,mark,selected,after,fallback,order,withoutClaude:selProvider};
     })()""")
     assert result == {
         'before': False, 'after': False, 'selected': 'gemini', 'fallback': 'claude',
+        'order': ['claude', 'codex', 'gemini', 'deepseek', 'local'], 'withoutClaude': 'gemini',
         'mark': {'src': 'cockpit-assets/google.svg', 'alt': '',
                  'title': 'Antigravity', 'label': 'Antigravity', 'enabled': True},
     }

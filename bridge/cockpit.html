@@ -4045,9 +4045,9 @@
       }
     }
   },
-  "inventory_digest": "613f14e13ad28476e047cc0b0c053692b2c0554bc5a1ef0bfb9ba7f46b0f65f0",
+  "inventory_digest": "2c9f0e628f23be9e3a41ebc158c8e819ec1e2eeeb7ff8a005ff9b9251b55f5fd",
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "e7f35957a719c2fa2df8740c7d5931a364117e7af47c97b08f6eb95833fe855e",
+  "source_digest": "b6f3d27af72421e159b45289d92c691ab725d5b8045a2ac9d08ee6eb907eed5c",
   "surface": "cockpit",
   "version": 1
 }
@@ -10439,6 +10439,11 @@ function renderProviderTabs(){
   }
   for(const entry of entries)if(!families.some(f=>f.id===entry.family)){
     families.push({id:entry.family,label:entry.provider.label||entry.family});
+  }
+  const geminiIndex=families.findIndex(f=>f.id==='gemini');
+  if(geminiIndex>=0){
+    const [geminiFamily]=families.splice(geminiIndex,1);
+    families.splice(families.findIndex(f=>f.id==='deepseek'),0,geminiFamily);
   }
   const hasFamily=id=>entries.some(e=>e.family===id)||providers.some(p=>SpawnPicker.family(p,{})===id);
   if(!selFamily||!hasFamily(selFamily))selFamily=(families.find(f=>hasFamily(f.id))||families[0]).id;
