@@ -112,7 +112,7 @@ The current build always draws nodes that need a human on top. If you can reprod
 
 ## Mail is not shown
 
-ORRERY does not read `AGENTSTACK_MAIL_DB` automatically.
+In legacy mode, `scripts/start-cockpit.sh` selects the database from `ORRERY_MAIL_DB`, the shell's `AGENTSTACK_MAIL_DB`, then Telemetry's `env.sh`. For a direct backend launch, set `ORRERY_MAIL_DB` or the shared `mail_db` setting to select a custom database. See [Mail DB precedence](configuration.md#orrery-mail-db). Fresh mode uses the protected dashboard API and does not fall back to the legacy database. The database checks below apply to legacy mode.
 
 ```bash
 export ORRERY_MAIL_DB=/absolute/path/to/storage.sqlite3
@@ -236,14 +236,14 @@ There is no override for a binary at another path. If an interactive client is a
 
 ## The prompt is not sent
 
-The composer sends a carriage return 250 ms after the bracketed paste.
+The composer sends a carriage return 250 ms after the bracketed paste only if the destination pane, session, and connection still match. If you see `send cancelled`, inspect the intended terminal before retrying: the input may already have been pasted.
 
 - The active pane is the right one
 - You are not in the middle of IME composition
 - The pane is not at a shell prompt instead of the agent TUI
 - The WebSocket is connected
 
-`Shift+Enter` is a newline and `Esc` is an interrupt. Pasting an image does not upload a file; it forwards a literal `Ctrl+V` to the TUI.
+`Shift+Enter` is a newline and `Esc` is an interrupt. On macOS, pasting an image forwards a literal `Ctrl+V` to the TUI. On WSL, if the Windows clipboard is accessible, it saves the image as a PNG and inserts its path into the composer. See [Prompt composer](usage.md#prompt-composer).
 
 ## History remains / does not disappear
 

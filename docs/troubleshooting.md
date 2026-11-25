@@ -112,7 +112,7 @@ catalog の fallback が見えても offline spawn はできません。spawn PO
 
 ## mail が表示されない
 
-ORRERY は `AGENTSTACK_MAIL_DB` を自動では読みません。
+legacy mode で `scripts/start-cockpit.sh` を使う場合は、`ORRERY_MAIL_DB`、shell の `AGENTSTACK_MAIL_DB`、Telemetry の `env.sh` の順で DB を選びます。backend を直接起動する場合は `ORRERY_MAIL_DB` または共有設定の `mail_db` を明示します。[DB の優先順位](configuration.md#orrery-mail-db) を参照してください。fresh mode では保護された dashboard API を使い、legacy DB には fallback しません。以下の DB 確認は legacy mode が対象です。
 
 ```bash
 export ORRERY_MAIL_DB=/absolute/path/to/storage.sqlite3
@@ -236,14 +236,14 @@ protocol の pane `split` / `close` は `orrery-` prefix の管理 session だ�
 
 ## prompt が送信されない
 
-composer は bracketed paste の250 ms 後に carriage return を送ります。
+composer は bracketed paste の250 ms 後に、送り先の pane・session・接続が変わっていないことを確認して carriage return を送ります。`send cancelled` が表示された場合は、入力が既に端末に貼られている可能性があるため、再送する前に対象の端末を確認してください。
 
 - active pane が正しいか
 - IME composition 中ではないか
 - pane が agent TUI ではなく shell prompt になっていないか
 - WebSocket が connected か
 
-`Shift+Enter` は改行、`Esc` は interrupt です。画像 paste は file upload ではなく literal `Ctrl+V` を TUI へ転送します。
+`Shift+Enter` は改行、`Esc` は interrupt です。macOS の画像 paste は literal `Ctrl+V` を TUI へ転送します。WSL では Windows の clipboard にアクセスできる場合、画像を PNG として保存し、そのパスを composer に入れます。[Prompt composer](usage.md#prompt-composer) を参照してください。
 
 ## 履歴が残る／消えない
 
