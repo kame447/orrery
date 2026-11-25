@@ -28,11 +28,14 @@ PERSISTENT = agent('BeaconFixture', lifecycle='persistent')
 
 
 @pytest.fixture
-def roster():
+def roster(request):
     cdp = os.environ.get('ORRERY_CDP_URL')
     if not cdp:
         pytest.skip('set ORRERY_CDP_URL to an existing test browser')
     live = [ACTIVE, PERSISTENT]
+    if getattr(request, "param", False):
+        live.append({**agent("UnobservedFixture", "unknown"), "running": None,
+                     "native_launch_unended": True, "act_state": None})
     state = {'trace': [], 'checks': [], 'failures': {}}
 
     class Handler(SimpleHTTPRequestHandler):
@@ -172,3 +175,20 @@ def test_a_timeout_and_resume_failure_each_get_a_line_and_do_not_stop_the_queue(
         'CopperFixture: timed out waiting for exit',
         'QuartzFixture: Resume unavailable Check session history',
     ]
+
+@pytest.mark.parametrize("roster", [True], indirect=True)
+def test_unobserved_native_launch_stays_visible_and_cannot_trigger_bulk_or_jump(roster):
+    js, wait, state = roster
+    assert js("tiles.has('UnobservedFixture')")
+    assert js("tiles.get('UnobservedFixture').querySelector('.agent-status').getAttribute('aria-label')") == "Status unobserved"
+    assert not js("tiles.get('UnobservedFixture').querySelector('.roster-observation').hidden")
+    assert js("tiles.get('UnobservedFixture').getAttribute('aria-disabled')") == "true"
+    js("tiles.get('UnobservedFixture').click()")
+    assert js("bulkSelectedAgents.size") == 0
+    js("setRosterSelectMode(false);tiles.get('UnobservedFixture').click()")
+    assert js("toastEl.textContent") == "Agent status unobserved · retry when live"
+    assert state["trace"] == []
+    js("""const row=liveRosterAgents.find(a=>a.name==='UnobservedFixture');
+        row.running=true;row.category='agent';row.act_state='wait';renderRoster();""")
+    assert js("tiles.get('UnobservedFixture').querySelector('.roster-observation').hidden")
+    assert js("tiles.get('UnobservedFixture').querySelector('.agent-status').getAttribute('aria-label')") == "Waiting"

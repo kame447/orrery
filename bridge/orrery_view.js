@@ -60,6 +60,7 @@ function svgEl(tag,attrs={}){
   return el;
 }
 function stateOf(agent){
+  if(agent?.native_launch_unended===true&&agent.running===null&&agent.category==='unknown'&&agent.retired!==true)return 'status unobserved';
   return String(agent.act_state||(agent.running?'work':'idle')).replaceAll('_',' ');
 }
 function roleOf(agent){

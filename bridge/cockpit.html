@@ -305,6 +305,8 @@
     border:1px solid var(--ink-dim);
   }
   .agent.working .agent-status{background:var(--ink-dim)}
+  .agent.unobserved .agent-status{border-style:dashed;background:transparent}
+  .roster-observation{font-size:10px;color:var(--ink-dim);white-space:nowrap}
   .agent.ask .agent-status,.agent.question .agent-status{
     background:var(--theme-status-alert,#ff6a5d);border-color:var(--theme-status-alert,#ff6a5d)
   }
@@ -4013,6 +4015,15 @@ function rosterNameMatches(name,query,agents){
   const hay=descriptor&&Array.isArray(descriptor.tokens)?descriptor.tokens.join(' '):name;
   return normalizeSearchText(hay).includes(needle);
 }
+// A validated unended native launch is presence, not OS liveness.
+function isUnobservedNativeAgent(agent){
+  return agent?.native_launch_unended===true&&agent.running===null&&
+    agent.category==='unknown'&&agent.retired!==true;
+}
+function isVisibleRosterAgent(a){
+  return Boolean(a&&((a.running||a.category==='agent')&&a.category!=='warmup'||
+    isUnobservedNativeAgent(a)));
+}
 function isBulkExitEligibleAgent(agent){
   if(!agent||typeof agent.name!=='string'||!agent.name)return false;
   const state=normalizeSearchText(agent.state);
@@ -4040,7 +4051,7 @@ function paletteCatalog(agentRecords,sessionRecords,readyNames=[],requestingName
   const ready=new Set(readyNames),requesting=new Set(requestingNames);
   const agents=(Array.isArray(agentRecords)?agentRecords:[]).filter(a=>a&&a.name).map(a=>({
     id:`agent:${a.name}`,kind:'agent',name:a.name,
-    state:a.running?(a.act_state||'live'):'idle',
+    state:isUnobservedNativeAgent(a)?'unobserved':a.running?(a.act_state||'live'):'idle',
     ctx:typeof a.ctx_used==='number'?a.ctx_used:null,
     searchText:`${a.name} agent ${a.act_state||''} ${a.task||''}`,
   }));
@@ -7530,6 +7541,10 @@ function jumpToSessionTarget(name,{forceFocus=false}={}){
   else if(decision.kind==='attach')requestAttach(name,true);
 }
 function jumpToAgent(name,event=null){
+  // Don't attach/focus a terminal on the strength of a saved launch receipt.
+  if(isUnobservedNativeAgent(currentAgentNamed(name))){
+    showToast('Agent status unobserved · retry when live',true);return;
+  }
   selectAgent(name);
   document.dispatchEvent(new CustomEvent('oc:tour-action',{detail:{id:'choose',name}}));
   if(isSplitToggle(event)){
@@ -8762,7 +8777,7 @@ let rosterSelectMode=false,bulkActionArmed=null,bulkActionBusy=null,bulkActionAr
 let liveRosterAgents=[],stoppedSelectAgents=[],stoppedSelectRequest=null;
 
 function isBulkSelectableAgent(agent){
-  return Boolean(agent&&agent.name&&agent.lifecycle!=='persistent'&&agent.category!=='warmup'&&
+  return Boolean(agent&&agent.name&&!isUnobservedNativeAgent(agent)&&agent.lifecycle!=='persistent'&&agent.category!=='warmup'&&
     (agent.category==='agent'||isBulkExitEligibleAgent(agent)));
 }
 function isBulkAgentRunning(agent){
@@ -9183,6 +9198,7 @@ function tileFor(a){
           <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 3.5v-.5a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 3v5A1.5 1.5 0 0 0 4 9.5h.5"/></svg>
         </button></div>
         <span class="roster-role" hidden></span>
+        <span class="roster-observation" hidden>Status unobserved</span>
         <span class="roster-runtime" hidden><span class="roster-model" hidden></span>
           <span class="roster-context" role="meter" aria-label="Context usage" aria-valuemin="0" aria-valuemax="100" hidden>
             <span class="agent-detail-meter" aria-hidden="true"><i></i></span><span aria-hidden="true"></span>
@@ -9220,7 +9236,11 @@ function paintTile(el,a){
   el.classList.toggle('ask',a.running&&a.act_state==='ask');
   el.classList.toggle('question',a.running&&a.act_state==='question');
   el.classList.toggle('sel',a.name===selectedAgent);
-  const status=!a.running?'Offline':agentNeedsYou(a)?'Needs your input':a.act_state==='work'?'Working':'Waiting';
+  const unobserved=isUnobservedNativeAgent(a);
+  el.classList.toggle('unobserved',unobserved);
+  const status=unobserved?'Status unobserved':!a.running?'Offline':agentNeedsYou(a)?'Needs your input':a.act_state==='work'?'Working':'Waiting';
+  const observationLabel=el.querySelector('.roster-observation');
+  setHidden(observationLabel,!unobserved);
   const dot=el.querySelector('.agent-status');
   setAttr(dot,'aria-label',status);
   setTitle(dot,status);
@@ -9618,8 +9638,7 @@ async function pollAgents(){
     // warmup(warm-*/pending-*) はプール予熱でありエージェントではない。
     // 従来は名前順で最下部に沈んで見えなかったが、recency ソート導入で
     // 浮上するようになったため明示除外（claim され改名された時点で現れる）。
-    liveRosterAgents=(d.agents||[]).filter(a=>
-      (a.running||a.category==='agent')&&a.category!=='warmup').map(prepareRosterRow);
+    liveRosterAgents=(d.agents||[]).filter(isVisibleRosterAgent).map(prepareRosterRow);
     renderRoster();
     rosterTag.hidden=true;rosterTag.textContent='';agentDot.className='dot open';
   }catch(e){rosterTag.hidden=false;rosterTag.textContent='dashboard offline';agentDot.className='dot error';return false;}
