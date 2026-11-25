@@ -112,7 +112,7 @@ restore は snapshot size への `resize-window`、control client の per-window
 
 ## Frontend runtime
 
-cockpit は `xterm.js 5.5.0` と `addon-fit 0.10.0` を CDN から読みます。terminal logic は script load を前提にするため、self-contained distribution に変更する場合は asset vendoring、CSP、license notice、bundle inclusion を同時に更新してください。
+端末は同梱の `xterm.js 5.5.0`、`addon-fit 0.10.0`、`addon-web-links 0.11.0` を backend から読み込みます。Google Fonts に接続できないときはローカルのフォントに切り替わります。インストールと更新には配布元への接続が必要です。
 
 prompt draft / history は各 window の `localStorage` だけに残ります。font、auto-shrink、split layout、mini mode / depth、colour theme、theme profile、NEW AGENT Advanced の開閉状態は `bridge/prefs_sync.js` が backend の `/telemetry/prefs`（`~/.orrery/prefs.json`）と同期します。読み込み時に同期 GET で `localStorage` へ写し、`setItem` を横取りして PUT し、4 秒ごとの GET で他 window の変更を取り込んで `oc:prefs-changed` を投げます。app window と browser tab が別々の設定を持って見た目が食い違う、という事故の再発防止です。Reset の対象は font と auto-shrink だけです。
 

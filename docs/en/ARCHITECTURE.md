@@ -112,7 +112,7 @@ Restore proceeds in this order: `resize-window` to the snapshot size, updating t
 
 ## Frontend runtime
 
-The cockpit loads `xterm.js 5.5.0` and `addon-fit 0.10.0` from a CDN. The terminal logic assumes the scripts have loaded, so if you change to a self-contained distribution, update asset vendoring, CSP, license notices, and bundle inclusion together.
+The terminal loads the bundled `xterm.js 5.5.0`, `addon-fit 0.10.0`, and `addon-web-links 0.11.0` from the backend. Fonts fall back locally when Google Fonts cannot be reached. Installation and updates require access to the distribution sources.
 
 The prompt draft / history remain only in each window's `localStorage`. Font, auto-shrink, split layout, mini mode / depth, color theme, theme profile, and the open / closed state of NEW AGENT Advanced are synchronized by `bridge/prefs_sync.js` with the backend's `/telemetry/prefs` (`~/.orrery/prefs.json`). On load it copies the values into `localStorage` with a synchronous GET, intercepts `setItem` to PUT, and picks up changes from other windows with a GET every 4 seconds, dispatching `oc:prefs-changed`. This prevents a recurrence of the problem where the app window and a browser tab hold separate settings and look different. Reset applies only to font and auto-shrink.
 

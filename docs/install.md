@@ -527,7 +527,7 @@ APIの組合せと確認範囲は[Telemetryの対応表](https://github.com/gyro
 - Python 3.11 以上
 - `tmux`
 - `pip` と `venv`
-- runtime CDN に接続できるネットワーク
+- 導入・更新時に配布元へ接続できるネットワーク。端末の `xterm.js` と addon は同梱
 
 desktop app の開発・build 時:
 

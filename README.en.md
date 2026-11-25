@@ -272,7 +272,7 @@ Run the backend in WSL2 and open it in a Windows browser to use the same screen 
 - On a Mac where `tmux` installed by Homebrew is not found, set up `brew shellenv` in your shell so `/opt/homebrew/bin` is on PATH (the installer reports `tmux` as "Missing" when it is not)
 - A running [ORRERY Telemetry](https://github.com/gyroid-eth/orrery-telemetry) (to use all integrated features)
 - ORRERY Mail SQLite (to use the mail rail)
-- Access to a runtime CDN (for `xterm.js` and its addons; the current distribution is not a fully offline bundle)
+- Network access to the distribution sources when installing or updating. The terminal bundles `xterm.js` and its addons
 
 See [Installation](docs/en/install.md) for details and requirements by role.
 
@@ -341,7 +341,7 @@ The Japanese documents are the source of truth. The English versions are in READ
 | [Installation](docs/en/install.md) | Requirements, venv, connecting to ORRERY Telemetry, the backend, `ORRERY.app` |
 | [Configuration](docs/en/configuration.md) | All environment variables, defaults, connection targets and storage locations |
 | [Usage](docs/en/usage.md) | Roster, terminal, split, spawn, mail, TELEMETRY, replay |
-| [Troubleshooting](docs/en/troubleshooting.md) | Startup, ports, `:8770`, `pyte`, tmux, CDN |
+| [Troubleshooting](docs/en/troubleshooting.md) | Startup, ports, `:8770`, `pyte`, tmux, and terminal assets |
 | [Architecture overview](docs/en/ARCHITECTURE_OVERVIEW.md) | tmux, Codex App, network, data retention, handling of portrait images |
 | [Implementation architecture](docs/en/ARCHITECTURE.md) | Details of the backend, HTTP / WebSocket, and tmux control |
 | [Legacy tmux target protection](docs/en/runtime-target.md) | Pinned endpoints, global pane refusals and repair |

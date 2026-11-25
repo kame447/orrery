@@ -282,7 +282,7 @@ WSL2 で backend を動かし、Windows のブラウザで開けば、Mac と同
 - Homebrew で入れた `tmux` が見つからない Mac では、`brew shellenv` を shell に設定して `/opt/homebrew/bin` を PATH に通す（installer が `tmux` を「Missing」と言うのは、これが無いときです）
 - 稼働中の [ORRERY Telemetry](https://github.com/gyroid-eth/orrery-telemetry)（全連携機能を使う場合）
 - ORRERY Mail SQLite（mail rail を使う場合）
-- runtime CDN への接続（`xterm.js` と addon。現行配布は完全 offline bundle ではありません）
+- 導入と更新には配布元へ接続できるネットワークが必要です。端末の `xterm.js` と addon は同梱しています
 
 詳細と役割別の要件は[インストール](docs/install.md)を参照してください。
 
@@ -351,7 +351,7 @@ DeepSeek・dsh / Hermesを新しく追加する場合は、更新後に[初期�
 | [インストール](docs/install.md) | 要件、venv、ORRERY Telemetry との接続、backend、`ORRERY.app` |
 | [設定](docs/configuration.md) | 環境変数の全数、既定値、接続先と保存先 |
 | [使い方](docs/usage.md) | roster、terminal、split、spawn、mail、TELEMETRY、replay |
-| [トラブルシューティング](docs/troubleshooting.md) | 起動、port、`:8770`、`pyte`、tmux、CDN |
+| [トラブルシューティング](docs/troubleshooting.md) | 起動、port、`:8770`、`pyte`、tmux、端末の配信 |
 | [アーキテクチャ概要](docs/ARCHITECTURE_OVERVIEW.md) | tmux、Codex App、network、データ保持、肖像画像の扱い |
 | [実装アーキテクチャ](docs/ARCHITECTURE.md) | backend、HTTP / WebSocket、tmux 制御の詳細 |
 | [旧 tmux 対象の保護](docs/runtime-target.md) | 接続先の固定、global pane の拒否と修復 |

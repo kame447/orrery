@@ -207,15 +207,7 @@ ORRERY の Claim は tmux window size を実際に変更します。Ghostty な�
 
 ## terminal が空、または xterm が読み込まれない
 
-現行 frontend は `xterm.js 5.5.0` と `addon-fit 0.10.0` を CDN から読みます。ネットワークや Content Security Policy が jsDelivr / Google Fonts を拒否すると、font は fallback し、xterm script がなければ terminal UI は成立しません。
-
-確認:
-
-- browser / WebView の developer console
-- CDN への DNS / TLS 到達
-- proxy / firewall / CSP
-
-現行配布は完全 self-contained offline bundle ではありません。
+同梱の xterm と addon は cockpit backend から配信されます。ブラウザーの開発者ツールで `/vendor/xterm-5.5.0/xterm.js` と `/vendor/` 配下の個別の addon URL が読み込めているか確かめます。失敗する場合は、起動中の backend と checkout が同じ版か、同梱の asset がそろっているか確認します。Google Fonts に接続できない場合はフォントだけが切り替わります。
 
 ## WebSocket が切断を繰り返す
 

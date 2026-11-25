@@ -527,7 +527,7 @@ The requirements below apply to the cockpit alone. The shared installation and T
 - Python 3.11 or newer
 - `tmux`
 - `pip` and `venv`
-- A network that can reach the runtime CDN
+- Network access to the distribution sources for installation and updates. The terminal bundles `xterm.js` and its addons
 
 For developing and building the desktop app:
 

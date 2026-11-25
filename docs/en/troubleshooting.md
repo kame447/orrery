@@ -207,15 +207,7 @@ A tracked snapshot whose restore failed is not consumed until the restore succee
 
 ## The terminal is empty, or xterm does not load
 
-The current frontend loads `xterm.js 5.5.0` and `addon-fit 0.10.0` from a CDN. If the network or the Content Security Policy rejects jsDelivr / Google Fonts, fonts fall back, and without the xterm script the terminal UI cannot work.
-
-Check:
-
-- The browser / WebView developer console
-- DNS / TLS reachability to the CDN
-- proxy / firewall / CSP
-
-The current distribution is not a fully self-contained offline bundle.
+The cockpit backend serves bundled xterm and its addons. In the browser developer tools, check that `/vendor/xterm-5.5.0/xterm.js` and the individual addon URLs under `/vendor/` load. If they fail, check that the running backend matches your checkout and that the bundled assets are present. A failure to reach Google Fonts only changes the font.
 
 ## The WebSocket keeps disconnecting
 
