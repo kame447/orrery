@@ -261,3 +261,40 @@ def test_stopped_unpaired_claude_call_survives_prompt_then_late_result(cockpit,t
     js("document.querySelector('.conversation-steps:not([hidden]) .conversation-steps-toggle').click()")
     capture('matched')
     assert js("packets.filter(p=>p.type==='input')")==[]
+
+
+def test_updated_native_step_preserves_row_and_unchanged_target_selection(cockpit):
+    rows = events('codex')
+    correction = project(native('CommandExecution', ident='one', command=['pytest'],
+                                status='failed', exit_code=1), 11)
+    js, _, _, _, enable = cockpit
+    enable(count=1)
+    js("""window.stepHost=document.createElement('div');document.body.append(stepHost);
+      window.stepFixture=OrreryConversationSteps.mount({host:stepHost});
+      window.stepRows=""" + json.dumps(rows) + """;
+      window.syncFixture=()=>stepFixture.sync({events:stepRows,provider:'Codex',
+        mode:'cursor',rows:[],context:{running:true,act_state:'work'},isVisible:false});
+      syncFixture();
+      window.retainedStep=stepHost.querySelector('.conversation-step');
+      window.retainedTarget=retainedStep.querySelector('.conversation-step-target').firstChild;
+      const range=document.createRange();range.selectNodeContents(retainedTarget);
+      getSelection().removeAllRanges();getSelection().addRange(range);""")
+    assert js("getSelection().toString()") == 'pytest'
+    js("stepRows.push(" + json.dumps(correction) + ");syncFixture()")
+    assert js("stepHost.querySelectorAll('.conversation-step').length") == 1
+    assert js("stepHost.querySelector('.conversation-step-icon').classList.contains('failed')")
+    assert js("retainedStep===stepHost.querySelector('.conversation-step')")
+    assert js("retainedTarget===retainedStep.querySelector('.conversation-step-target').firstChild")
+    assert js("getSelection().toString()") == 'pytest'
+    updated = project(native('CommandExecution', ident='one', command=['node'],
+                             status='completed', exit_code=0), 12)
+    cleared = project(native('CommandExecution', ident='one', command=[],
+                             status='completed', exit_code=0), 13)
+    js("stepRows.push(" + json.dumps(updated) + ");syncFixture()")
+    assert js("retainedStep===stepHost.querySelector('.conversation-step')")
+    assert js("retainedStep.querySelector('.conversation-step-target').textContent") == 'node'
+    assert js("retainedStep.querySelector('.conversation-step-icon').classList.contains('done')")
+    js("stepRows.push(" + json.dumps(cleared) + ");syncFixture()")
+    assert js("retainedStep===stepHost.querySelector('.conversation-step')")
+    assert not js("Boolean(retainedStep.querySelector('.conversation-step-target'))")
+    js("stepFixture.reset();stepHost.remove()")

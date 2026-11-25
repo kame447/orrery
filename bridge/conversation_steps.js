@@ -170,18 +170,34 @@ SOFTWARE.
       button.addEventListener('click',()=>mutate(()=>setOpen(card,!card.open)));
       setOpen(card,false);return card;
     }
-    function row(step,animate){
+    function createRow(animate){
       const node=make('li','conversation-step'+(animate?' is-new':''));
-      const status=['done','failed'].includes(step.status)?step.status:'observed';
       const copy=make('div','conversation-step-copy'),top=make('div','conversation-step-top');
-      const tool=make('span','conversation-step-tool',text(step.tool).split('__').at(-1));
-      const outcome=make('span','conversation-step-outcome',status==='failed'?'Failed':status==='observed'?'Observed':'');
+      const tool=make('span','conversation-step-tool'),outcome=make('span','conversation-step-outcome');
+      const clock=make('span','conversation-step-duration'),detail=make('div','conversation-step-target');
+      top.append(tool,outcome,clock);copy.append(top);node.append(copy);
+      return {node,copy,tool,outcome,clock,detail,icon:null,status:'',fingerprint:'',values:new Map()};
+    }
+    function updateRow(record,step){
+      const status=['done','failed'].includes(step.status)?step.status:'observed';
+      if(record.status!==status){
+        const symbol=icon(status);
+        if(record.icon)record.icon.replaceWith(symbol);else record.node.prepend(symbol);
+        record.icon=symbol;record.status=status;
+      }
+      // Compare projected values, not possibly Demo-masked DOM text.
+      // Unchanged fields retain their text nodes and any active selection.
+      const update=(node,value)=>{
+        if(record.values.get(node)===value)return;
+        record.values.set(node,value);node.textContent=value;
+      };
+      update(record.tool,text(step.tool).split('__').at(-1));
+      update(record.outcome,status==='failed'?'Failed':status==='observed'?'Observed':'');
       const start=time(step.started),end=time(step.ended);
-      top.append(tool,outcome,make('span','conversation-step-duration',
-        Number.isFinite(start)&&Number.isFinite(end)&&end>=start?duration((end-start)/1000):''));
-      copy.append(top);
-      if(step.detail)copy.append(make('div','conversation-step-target',text(step.detail)));
-      node.append(icon(status),copy);return node;
+      update(record.clock,Number.isFinite(start)&&Number.isFinite(end)&&end>=start?duration((end-start)/1000):'');
+      update(record.detail,text(step.detail));
+      if(step.detail){if(!record.detail.parentNode)record.copy.append(record.detail);}
+      else record.detail.remove();
     }
     function title(card,value,working){
       if(card.title===value&&card.wave===working)return;
@@ -235,12 +251,10 @@ SOFTWARE.
         const ids=new Set(g.steps.map(s=>s.id));
         for(const [id,record] of card.rows)if(!ids.has(id)){record.node.remove();card.rows.delete(id);}
         for(const [index,step] of g.steps.entries()){
-          const fingerprint=JSON.stringify(step),record=card.rows.get(step.id);
-          if(!record||record.fingerprint!==fingerprint){
-            const node=row(step,existed);if(record)record.node.replaceWith(node);
-            card.rows.set(step.id,{node,fingerprint});
-          }
-          const node=card.rows.get(step.id).node;
+          const fingerprint=JSON.stringify(step),record=card.rows.get(step.id)||createRow(existed);
+          if(record.fingerprint!==fingerprint){updateRow(record,step);record.fingerprint=fingerprint;}
+          card.rows.set(step.id,record);
+          const node=record.node;
           if(card.list.children[index]!==node)card.list.insertBefore(node,card.list.children[index]||null);
         }
         const nodes=[...card.list.children];nodes.forEach((node,index)=>node.classList.toggle('has-next',index<nodes.length-1));
