@@ -4045,9 +4045,9 @@
       }
     }
   },
-  "inventory_digest": "e494d6d6e0633188ff02d828847a19e124759db599a7746db8ef9b40b2ccbb2b",
+  "inventory_digest": "da8c0c9001bcfb385e142acb6947252a29791c3005ccff59ec42f57493f02d2e",
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "0110de53d172b8e77283c0cbb6a95b8ea9e2516b38198408c8e08237a2f11c41",
+  "source_digest": "b6b39aa5cb8ab0b3f887e33085cd3468ad772937d48651e1d1fdecc640dff505",
   "surface": "cockpit",
   "version": 1
 }
@@ -11445,6 +11445,14 @@ function captureComposerTarget(){
   const paneId=activeId,pane=panes.get(paneId);
   return pane?{paneId,pane,session:pane.session,socket}:null;
 }
+function captureReferenceTarget(session){
+  if(session===undefined)return captureComposerTarget();
+  const current=captureComposerTarget();
+  if(current?.session===session)return current;
+  if(!splitVisible||!splitSessions.includes(session))return null;
+  const paneId=paneIdForSession(session),pane=panes.get(paneId);
+  return pane?.session===session?{paneId,pane,session,socket}:null;
+}
 function composerTargetPresent(target){
   if(panes.get(target.paneId)===target.pane&&target.pane.session===target.session&&socket===target.socket)return true;
   showToast(`send cancelled → ${target.session}: terminal changed; select the target and retry`,true);
@@ -11909,7 +11917,7 @@ const conversationView=(()=>{
       await asset('script','src','conversation_reply.js');
       await asset('script','src','reader_activity.js');
       readerReply=OrreryConversationReply.mount({host:promptInput.closest('.promptbar'),input:promptInput,
-        getTarget:captureComposerTarget,onError:text=>showToast(text,true)});
+        getTarget:captureReferenceTarget,onError:text=>showToast(text,true)});
       readerActivity=OrreryReaderActivity.mount({getPanes:()=>panes.values(),
         getProgram:pane=>currentAgents.find(agent=>agent.name===pane.session)?.program,
         getBinding:pane=>OrreryConversationSource.bindingIdentity(
@@ -11954,7 +11962,7 @@ const conversationView=(()=>{
         openExternalUrl,
         renderPeerAvatar:conversationPeerAvatar,
         renderAvatar:conversationAvatar,
-        onReference:value=>readerReply.add(value),
+        onReference:(value,beforeFocus)=>readerReply.add(value,beforeFocus),
       });
       return instance;
     })().catch(error=>{loading=null;showToast(error.message,true);return null;});
