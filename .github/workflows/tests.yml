@@ -3,7 +3,7 @@ name: tests
 on:
   pull_request:
   push:
-    branches: [master]
+    branches: [master, sync/upstream-20261124-mail-markdown]
 
 permissions:
   contents: read
