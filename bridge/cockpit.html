@@ -4045,9 +4045,9 @@
       }
     }
   },
-  "inventory_digest": "2c9f0e628f23be9e3a41ebc158c8e819ec1e2eeeb7ff8a005ff9b9251b55f5fd",
+  "inventory_digest": "e494d6d6e0633188ff02d828847a19e124759db599a7746db8ef9b40b2ccbb2b",
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "b6f3d27af72421e159b45289d92c691ab725d5b8045a2ac9d08ee6eb907eed5c",
+  "source_digest": "0110de53d172b8e77283c0cbb6a95b8ea9e2516b38198408c8e08237a2f11c41",
   "surface": "cockpit",
   "version": 1
 }
@@ -10379,6 +10379,7 @@ const ncDiceFace=document.getElementById('ncDiceFace');
 const ncName=document.getElementById('ncName');
 const ncAdjWrap=document.getElementById('ncAdjWrap');
 let spawnCatalogSignature=null;
+let spawnChooseAgain=false;
 const spawnCatalogLoader=SpawnCatalogLoader.create({
   isOpen:()=>spawnOverlay.classList.contains('on'),
   fetchCatalog:async signal=>{
@@ -10393,7 +10394,7 @@ const spawnCatalogLoader=SpawnCatalogLoader.create({
     if(signature===spawnCatalogSignature){updateSpawnAvailability();return;}
     spawnCatalogSignature=signature;
     spawnTaken=new Set(((data.naming||{}).taken||[]).map(n=>String(n).toLowerCase()));
-    renderProviderTabs();renderAgentStrip();
+    renderProviderTabs(true);renderAgentStrip();
     if(catalog)renderDirs();
     if(spawnOpenSheet)positionSpawnSheet(spawnOpenSheet,spawnOpenChip);
   },
@@ -10427,7 +10428,7 @@ function moveSpawnMarker(group,marker){
   marker.style.width=selected.offsetWidth+'px';
   marker.style.transform=`translateX(${selected.offsetLeft}px)`;
 }
-function renderProviderTabs(){
+function renderProviderTabs(keepChoice=false){
   const entries=SpawnPicker.entries(spawnCatalog);
   const providers=spawnCatalog.providers||[];
   const families=spawnFamilies.map(f=>({...f}));
@@ -10461,7 +10462,7 @@ function renderProviderTabs(){
     b.addEventListener('click',()=>{
       if(selFamily===f.id)return;
       selFamily=f.id;selProvider=null;selModel=null;selUrlIndex=null;selUrlKey=null;
-      selEffort=null;selHarness=null;spawnToolsRoute=null;spawnProblem='';
+      selEffort=null;selHarness=null;spawnToolsRoute=null;spawnProblem='';spawnChooseAgain=false;
       if(f.id!=='local')spawnModelSearch.value='';
       else restoreSpawnModelSearch();
       renderProviderTabs();
@@ -10474,7 +10475,13 @@ function renderProviderTabs(){
   const hadDynamicSelection=Number.isInteger(selUrlIndex);
   let selected=choices.find(e=>e.provider.id===selProvider&&e.model.id===selModel&&
     (!Number.isInteger(e.model.url_index)||e.model.url_index===selUrlIndex)&&(!e.model.url_key||e.model.url_key===selUrlKey));
-  if(!selected&&!hadDynamicSelection)selected=choices.find(e=>e.model.default&&SpawnPicker.harnesses(e.provider,e.model).some(h=>h.available))||choices.find(e=>SpawnPicker.harnesses(e.provider,e.model).some(h=>h.available))||choices.find(e=>!e.provider.dynamic_models);
+  if(keepChoice&&selModel&&(!selected||
+      (selected.model.url_index??null)!==selUrlIndex||(selected.model.url_key??null)!==selUrlKey||
+      (selHarness&&!SpawnPicker.harnesses(selected.provider,selected.model).some(h=>h.id===selHarness&&h.available)))){
+    // A background refresh must not switch the route of a prepared launch.
+    spawnChooseAgain=true;selected=null;spawnProblem='';
+  }
+  if(!selected&&!hadDynamicSelection&&!spawnChooseAgain)selected=choices.find(e=>e.model.default&&SpawnPicker.harnesses(e.provider,e.model).some(h=>h.available))||choices.find(e=>SpawnPicker.harnesses(e.provider,e.model).some(h=>h.available))||choices.find(e=>!e.provider.dynamic_models);
   selProvider=selected?selected.provider.id:(providers.find(p=>SpawnPicker.family(p,{})===selFamily)||{}).id||null;
   selModel=selected?selected.model.id:null;
   selUrlIndex=selected&&Number.isInteger(selected.model.url_index)?selected.model.url_index:hadDynamicSelection?selUrlIndex:null;
@@ -10506,7 +10513,7 @@ function renderLocalModels(){
     label.classList.toggle('unavailable',input.disabled);
     input.addEventListener('change',()=>{
       selProvider=entry.provider.id;selModel=entry.model.id;selUrlIndex=entry.model.url_index??null;
-      selUrlKey=entry.model.url_key??null;selEffort=null;selHarness=null;spawnProblem='';renderHarnesses();
+      selUrlKey=entry.model.url_key??null;selEffort=null;selHarness=null;spawnProblem='';spawnChooseAgain=false;renderHarnesses();
     });
     const name=document.createElement('span');name.className='model-choice-name';name.textContent=entry.model.display_name||entry.model.id;
     const note=document.createElement('span');note.className='model-choice-note';note.textContent=SpawnPicker.metadata(entry.provider,entry.model);
@@ -10617,12 +10624,13 @@ function updateSpawnAvailability(){
   const unavailable=harnesses.find(h=>!h.available);
   const missingEffort=provider&&model&&spawnExplicitEffortMissing(provider,selModel);
   const issue=spawnCatalog?.unavailable?'Model catalog unavailable. Open the model sheet to retry.':
+    spawnChooseAgain?'Selected model or harness is no longer available. Choose again.':
     provider?.model_error&&!model?`${provider.model_error}. Check model settings.`:
     model&&!harness?(unavailable?`${SpawnPicker.unavailableReason(unavailable)}. Open model settings for setup.`:'No available harness. Choose another model.'):
     !model&&Number.isInteger(selUrlIndex)?'Model unavailable. Choose another model.':
     missingEffort?'Choose an effort in the model sheet.':'';
   const message=spawnProblem||issue;
-  spawnSubmit.disabled=spawnBusy||!spawnTask.value.trim()||!harness||Boolean(missingEffort);
+  spawnSubmit.disabled=spawnBusy||spawnChooseAgain||!spawnTask.value.trim()||!harness||Boolean(missingEffort);
   spawnStatus.textContent=message;spawnStatus.title=message;spawnStatus.hidden=!message;
 }
 spawnModelSearch.addEventListener('input',()=>{
@@ -10692,8 +10700,13 @@ function splitOverflowModels(provider){
 }
 function renderModels(){
   const provider=providerById(selProvider)||{models:[]};
-  const models=SpawnPicker.displayModels(provider,(provider.models||[]).filter(model=>(model.locality||provider.locality||'cloud')!=='local'));
-  if(!selModel||!models.some(model=>model.id===selModel)){
+  const rows=(provider.models||[]).filter(model=>(model.locality||provider.locality||'cloud')!=='local');
+  const chosen=rows.find(model=>model.id===selModel);
+  // The fork groups effort-qualified IDs visually; keep the selected launch ID
+  // if a refresh changes which sibling appears first in that group.
+  const models=SpawnPicker.displayModels(provider,rows).map(model=>chosen&&
+    SpawnPicker.modelLabel(provider,model)===SpawnPicker.modelLabel(provider,chosen)?chosen:model);
+  if(!spawnChooseAgain&&(!selModel||!models.some(model=>model.id===selModel))){
     selModel=(models.find(model=>model.default)||models[0])?.id||null;
   }
   modelChoices.replaceChildren();
@@ -10704,7 +10717,7 @@ function renderModels(){
     const input=document.createElement('input');
     input.type='radio';input.name='spawnModel';input.value=model.id;input.checked=model.id===selModel;
     input.addEventListener('change',()=>{
-      selModel=model.id;selHarness=null;spawnProblem='';renderHarnesses();
+      selModel=model.id;selHarness=null;spawnProblem='';spawnChooseAgain=false;renderHarnesses();
     });
     const name=document.createElement('span');name.className='model-choice-name';name.textContent=SpawnPicker.modelLabel(provider,model);
     label.append(input,name);
@@ -10982,7 +10995,7 @@ function openSpawnModal({from=document.getElementById('newAgentBtn').getBounding
   spawnLastFocus=restoreFocus;
   if(!spawnBusy&&!spawnResumeDraft){
     spawnForm.reset();spawnTask.value=task.slice(0,spawnTask.maxLength);
-    spawnProblem='';
+    spawnProblem='';spawnChooseAgain=false;
     selScientist='';selProvider=null;selModel=null;selEffort=null;selFamily=null;selHarness=null;
     selUrlIndex=null;selUrlKey=null;spawnModelSearch.value='';
     renderSpawnTools();renderSpawnModelChip();updateNameCard();
@@ -11109,7 +11122,7 @@ function fillSpawnButton(event){
   fill.animate([{transform:'scale(0)',opacity:1},{transform:'scale(30)',opacity:0}],{duration:520,easing:'ease-out'});
 }
 async function submitSpawn(event){
-  event.preventDefault();if(spawnBusy||!spawnTask.value.trim())return;
+  event.preventDefault();if(spawnBusy||spawnChooseAgain||!spawnTask.value.trim())return;
   const p=providerById(selProvider),model=selectedSpawnModel();
   if(!p||!model||!SpawnPicker.harnesses(p,model).some(h=>h.id===selHarness&&h.available)||spawnExplicitEffortMissing(p,selModel))return;
   const payload=spawnPayloadFromForm();

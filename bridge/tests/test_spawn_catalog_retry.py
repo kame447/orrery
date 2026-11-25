@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from aiohttp import ClientSession, ClientTimeout, web
 from aiohttp.test_utils import TestClient, TestServer
 
@@ -119,3 +121,96 @@ def test_open_dialog_automatically_recovers_and_keeps_a_stale_selection(tour_bro
     assert result['recovered']==dict(model='last-good',disabled=False,status='')
     assert result['stale']==dict(model='last-good',disabled=False,catalogStale=True,same=True,focus=True)
     assert result['stopped']
+
+
+@pytest.mark.parametrize('change', ['unchanged', 'model', 'harness'])
+def test_catalog_refresh_does_not_replace_prepared_route(tour_browser, change):
+    _, evaluate = tour_browser
+    result = evaluate("""(async()=>{
+      const original=window.fetch;let updated=false,posts=0;
+      const selected={id:'chosen',harnesses:[
+        {id:'codex',available:true,default:true},{id:'dsh',available:true}]};
+      window.fetch=async(url,options)=>{
+        if(url==='/telemetry/spawn-catalog'){
+          const models=[{id:'fallback',default:true,harnesses:[{id:'codex',available:true}]}];
+          if(!updated||CHANGE!=='model')models.push(updated&&CHANGE==='harness'?
+            {...selected,harnesses:[{id:'codex',available:true}]}:selected);
+          return Response.json({providers:[{id:'codex',label:'Codex',models}],naming:{},dirs:[]});
+        }
+        if(url==='/telemetry/spawn'){posts++;return Response.json({ok:false,error:'unexpected launch'});}
+        if(String(url).startsWith('/telemetry/fs/dirs'))return Response.json({path:'/workspace',dirs:[]});
+        return original(url,options);
+      };
+      try{
+        openSpawnModal();await loadSpawnCatalog();spawnModelButton.click();
+        modelChoices.querySelector('input[value=chosen]').click();
+        spawnHarnesses.querySelector('[data-harness=dsh]').click();
+        spawnTask.value='Prepared task';updateSpawnAvailability();
+        const before={model:selModel,harness:selHarness,blocked:spawnSubmit.disabled};
+        updated=true;await loadSpawnCatalog();
+        const after={model:selModel,harness:selHarness,blocked:spawnSubmit.disabled,
+          task:spawnTask.value,notice:spawnStatus.textContent};
+        if(CHANGE!=='unchanged'){
+          await submitSpawn({preventDefault(){}});
+          await loadSpawnCatalog();
+          const stillBlocked=spawnSubmit.disabled;
+          modelChoices.querySelector('input[value=fallback]').click();
+          return {before,after,stillBlocked,posts,chosen:selModel,canLaunch:!spawnSubmit.disabled};
+        }
+        return {before,after,posts};
+      }finally{closeSpawnModal();window.fetch=original;}
+    })()""".replace('CHANGE', json.dumps(change)))
+    assert result['before'] == dict(model='chosen', harness='dsh', blocked=False)
+    if change == 'unchanged':
+        assert result['after'] == dict(model='chosen', harness='dsh', blocked=False,
+                                       task='Prepared task', notice='')
+    else:
+        assert result['after'] == dict(model=None, harness=None, blocked=True,
+                                       task='Prepared task',
+                                       notice='Selected model or harness is no longer available. Choose again.')
+        assert result['stillBlocked'] and result['chosen'] == 'fallback' and result['canLaunch']
+    assert result['posts'] == 0
+
+
+def test_refresh_keeps_grouped_launch_id_and_explicit_effort(tour_browser):
+    _, evaluate = tour_browser
+    result = evaluate("""(()=>{
+      const provider={id:'gemini',label:'Antigravity',program:'antigravity',
+        capabilities:{effort_required:true},efforts:['low','high'],
+        models:[{id:'fixture-high',default:true}]};
+      spawnCatalog={providers:[provider],naming:{},dirs:[]};
+      selFamily='gemini';selProvider=null;selModel=null;selHarness=null;
+      selUrlIndex=null;selUrlKey=null;selEffort=null;renderProviderTabs();
+      spawnTask.value='Prepared task';
+      const range=effortChoices.querySelector('input[type=range]');
+      range.value=0;range.dispatchEvent(new Event('input'));
+      provider.models.unshift({id:'fixture-low'});
+      renderProviderTabs(true);
+      return {model:selModel,effort:selEffort,blocked:spawnSubmit.disabled,
+        shown:[...modelChoices.querySelectorAll('input')].map(e=>[e.value,e.checked]),
+        payload:spawnPayloadFromForm()};
+    })()""")
+    assert result['model'] == 'fixture-high' and result['effort'] == 'low'
+    assert not result['blocked'] and result['shown'] == [['fixture-high', True]]
+    assert (result['payload']['model'],result['payload']['effort']) == ('fixture-high','low')
+
+
+def test_refresh_refuses_dynamic_endpoint_identity_downgrade(tour_browser):
+    _, evaluate = tour_browser
+    result = evaluate("""(()=>{
+      const row={id:'shared-model',url_index:0,url_key:'a'.repeat(64),
+        harnesses:[{id:'hermes',available:true}]};
+      const provider={id:'workstation',locality:'local',dynamic_models:true,models:[row]};
+      spawnCatalog={providers:[provider],naming:{},dirs:[]};
+      selFamily='local';selProvider=null;selModel=null;selHarness=null;
+      selUrlIndex=null;selUrlKey=null;renderProviderTabs();
+      modelChoices.querySelector('input').click();
+      spawnTask.value='Prepared task';updateSpawnAvailability();
+      const before=spawnPayloadFromForm();
+      provider.models=[{id:'shared-model',url_index:0,harnesses:row.harnesses}];
+      renderProviderTabs(true);
+      return {before,blocked:spawnSubmit.disabled,model:selModel,notice:spawnStatus.textContent};
+    })()""")
+    assert result['before']['url_index'] == 0 and result['before']['url_key'] == 'a'*64
+    assert result['blocked'] and result['model'] is None
+    assert result['notice'] == 'Selected model or harness is no longer available. Choose again.'
