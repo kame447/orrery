@@ -198,6 +198,34 @@ def test_antigravity_provider_tab_uses_existing_gemini_logo(tour_browser):
                       'className': 'spawn-brand', 'noExtraFamily': True}
 
 
+def test_antigravity_mark_follows_catalog_and_selection(tour_browser):
+    _, evaluate = tour_browser
+    result = evaluate("""(()=>{
+      const geminiTab=()=>providerTabs.querySelector('[data-family="gemini"]');
+      spawnCatalog={providers:[{id:'claude',models:[{id:'claude-fixture'}]}]};
+      selFamily=null;selProvider=null;selModel=null;selHarness=null;selEffort=null;
+      renderProviderTabs();
+      const before=Boolean(geminiTab());
+      spawnCatalog.providers.push({
+        id:'gemini',label:'Antigravity',program:'antigravity',models:[{id:'gemini-fixture'}]
+      });
+      renderProviderTabs();
+      const tab=geminiTab(),icon=tab.querySelector('img');
+      const mark={src:icon.getAttribute('src'),alt:icon.alt,
+        title:tab.title,label:tab.getAttribute('aria-label'),enabled:!tab.disabled};
+      tab.click();
+      const selected=selProvider;
+      spawnCatalog.providers.pop();
+      renderProviderTabs();
+      return {before,mark,selected,after:Boolean(geminiTab()),fallback:selProvider};
+    })()""")
+    assert result == {
+        'before': False, 'after': False, 'selected': 'gemini', 'fallback': 'claude',
+        'mark': {'src': 'cockpit-assets/google.svg', 'alt': '',
+                 'title': 'Antigravity', 'label': 'Antigravity', 'enabled': True},
+    }
+
+
 def test_picker_defaults_local_search_and_capability_updates_in_browser(tour_browser):
     _, evaluate = tour_browser
     result = evaluate('''(async()=>{

@@ -4035,9 +4035,9 @@
       }
     }
   },
-  "inventory_digest": "fcf5b870b88df9d6c5794f8fa3f59f54ec26212c31168436c793ca133282277d",
+  "inventory_digest": "978bcbd4d555bc72756b327ddd60f2fbcbb81833675cd999d075d3a4e19fae0c",
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "f665caa06eefc459176990f9e71112a69f3ed552deccbf0ce659849f2cf66f0d",
+  "source_digest": "185e7cb98cf687840cdbf047d92b514b722322400a6106d79a7b172e48a0041a",
   "surface": "cockpit",
   "version": 1
 }
@@ -10440,6 +10440,7 @@ function renderProviderTabs(){
     if(f.asset)b.append(spawnBrand(f.asset));
     else if(f.id==='local')b.append(spawnIcon('local'));
     else{
+      if(f.id==='gemini')b.append(spawnBrand('google.svg'));
       const name=document.createElement('span');name.textContent=f.label;b.append(name);
     }
     b.addEventListener('click',()=>{
