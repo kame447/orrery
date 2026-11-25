@@ -21,7 +21,7 @@ def opened(cockpit, theme='dark', layout='desktop'):
 @pytest.mark.parametrize('theme',['dark','light'])
 @pytest.mark.parametrize('state,elapsed,running,label',[
     ('work','2m05s',True,'Working'),('work',None,True,'Working'),
-    ('wait','3m',True,'Waiting'),('ask','3m',True,'Waiting for you'),
+    ('wait','3m',True,'Idle'),('ask','3m',True,'Waiting for you'),
     ('question',None,True,'Waiting for you'),(None,'3m',True,None),
     ('unknown','3m',True,None),('work','3m',False,None),
 ])
