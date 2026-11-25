@@ -6932,6 +6932,9 @@ function pruneSplitSessions(availableNames){
   return true;
 }
 function toggleSplitSession(session,{forceFocus=false}={}){
+  if(!splitSessions.includes(session)&&isUnobservedNativeAgent(currentAgentNamed(session))){
+    showToast('Agent status unobserved · retry when live',true);return false;
+  }
   if(paneWindows.has(session)){
     focusPaneWindow(session);showToast(`IN ITS OWN WINDOW · ${session}`,true);return false;
   }
@@ -7368,6 +7371,9 @@ function detachSession(session,remember=false,{keepTab=false}={}){
   forgetSession(session,{removeGroup:!keepTab});
 }
 function requestAttach(session,priority=false){
+  // A session list can outlive the roster observation. Never initiate an
+  // attachment (or evict an existing pane) from an unobserved receipt.
+  if(isUnobservedNativeAgent(currentAgentNamed(session)))return false;
   if(!paneSessionAllowed(session))return false;
   if(!availableSessions.has(session)||attachedSessions.has(session)||requestedSessions.has(session))return false;
   manualDetached.delete(session);
@@ -7483,6 +7489,9 @@ function agentHasNoTerminal(name){
   return /^codex-app/.test(String(rec.cmd||''));
 }
 function jumpToSessionTarget(name,{forceFocus=false}={}){
+  if(isUnobservedNativeAgent(currentAgentNamed(name))){
+    showToast('Agent status unobserved · retry when live',true);return;
+  }
   if(paneWindows.has(name)){
     pendingJump=null;terminalLessAgent=null;paneWindowSelection=name;
     activeId=null;splitVisible=false;blurTerminalFocus();

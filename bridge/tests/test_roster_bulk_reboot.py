@@ -188,6 +188,20 @@ def test_unobserved_native_launch_stays_visible_and_cannot_trigger_bulk_or_jump(
     js("setRosterSelectMode(false);tiles.get('UnobservedFixture').click()")
     assert js("toastEl.textContent") == "Agent status unobserved · retry when live"
     assert state["trace"] == []
+    # A stale native-session list must not let a deep link, palette session,
+    # split toggle or automatic attach bypass the roster-level refusal.
+    result = js("""(()=>{
+        const name='UnobservedFixture', savedSend=send, attempts=[];
+        availableSessions.set(name,{session:name});
+        send=message=>{attempts.push(message.type);return true;};
+        try{
+            const direct=requestAttach(name,true);
+            jumpToSessionTarget(name);
+            const split=toggleSplitSession(name);
+            return {direct,split,attempts,pending:pendingJump===name};
+        }finally{send=savedSend;availableSessions.delete(name);}
+    })()""")
+    assert result == {"direct": False, "split": False, "attempts": [], "pending": False}
     js("""const row=liveRosterAgents.find(a=>a.name==='UnobservedFixture');
         row.running=true;row.category='agent';row.act_state='wait';renderRoster();""")
     assert js("tiles.get('UnobservedFixture').querySelector('.roster-observation').hidden")
