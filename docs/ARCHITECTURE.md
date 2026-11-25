@@ -56,7 +56,7 @@ browser が session を選ぶまで pane attach は遅延します。recorder co
 | `* /api/<tail>` | ORRERY Telemetry API passthrough |
 | `* /assets/<tail>` | ORRERY Telemetry asset passthrough |
 | `GET /portrait` | ORRERY Telemetry portrait passthrough |
-| `STATIC /<path>` | `bridge/` static。`/cockpit.html` を含み directory index 有効 |
+| `STATIC /<path>` | `PUBLIC_FILES` に列挙したページと同梱 asset だけを公開します。directory index は無効です。 |
 
 passthrough は全 method を受けますが、request body を読むのは POST だけです。upstream response header は `Content-Type` と cache 制御以外を保持しません。
 
@@ -133,7 +133,7 @@ spawn catalog の local fallback は modal 表示用で、spawn 実行の fallba
 
 - bind は `127.0.0.1` 限定
 - localhost 内の認証なし
-- static は `bridge/` 全体を directory index 付きで公開
+- static は `PUBLIC_FILES` の固定一覧だけを公開
 - `/telemetry/fs/dirs` に root allowlist なし
 - dashboard control route を passthrough
 - ORRERY Mail SQL だけ read-only

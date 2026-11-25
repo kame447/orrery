@@ -56,7 +56,7 @@ Pane attach is deferred until the browser selects a session. A recorder connecti
 | `* /api/<tail>` | ORRERY Telemetry API passthrough |
 | `* /assets/<tail>` | ORRERY Telemetry asset passthrough |
 | `GET /portrait` | ORRERY Telemetry portrait passthrough |
-| `STATIC /<path>` | `bridge/` static files. Includes `/cockpit.html`, with directory index enabled |
+| `STATIC /<path>` | Serves only the pages and bundled assets listed in `PUBLIC_FILES`. Directory listings are disabled. |
 
 Passthroughs accept every method, but only POST has its request body read. Upstream response headers other than `Content-Type` and cache control are not preserved.
 
@@ -133,7 +133,7 @@ The spawn catalog's local fallback is for the modal display and is not a fallbac
 
 - Bind is limited to `127.0.0.1`
 - No authentication within localhost
-- Static files expose all of `bridge/` with a directory index
+- Static routes expose only the fixed `PUBLIC_FILES` list
 - `/telemetry/fs/dirs` has no root allowlist
 - Dashboard control routes are passed through
 - Only the ORRERY Mail SQL is read-only
