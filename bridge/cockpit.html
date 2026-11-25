@@ -215,15 +215,22 @@
   .col{min-height:0;display:flex;flex-direction:column;overflow:hidden}
   .col.roster{border-right:1px solid var(--hair)}
   .col.mail{grid-column:3;grid-row:1;border-left:1px solid var(--hair)}
+  .mail-divider,.mail-graph-divider{position:relative;touch-action:none;outline:none}
   .mail-divider{
-    position:relative;z-index:4;grid-column:3;grid-row:1;justify-self:start;translate:-50% 0;width:12px;
-    cursor:col-resize;touch-action:none;outline:none;
+    z-index:4;grid-column:3;grid-row:1;justify-self:start;translate:-50% 0;width:12px;cursor:col-resize;
   }
-  .mail-divider::after{
+  .mail-graph-divider{flex:0 0 12px;cursor:row-resize}
+  .miniorrery[hidden]+.mail-graph-divider{display:none}
+  .mail-divider::after,.mail-graph-divider::after{
     content:"";position:absolute;left:50%;top:50%;translate:-50% -50%;
-    width:2px;height:32px;border-radius:2px;background:var(--ink-faint);
+    border-radius:2px;background:var(--ink-faint);
   }
-  .mail-divider:is(:hover,:focus-visible,.dragging)::after{background:var(--amber);width:3px}
+  .mail-divider::after{width:2px;height:32px}
+  .mail-graph-divider::after{width:32px;height:2px}
+  .mail-divider:is(:hover,:focus-visible,.dragging)::after,
+  .mail-graph-divider:is(:hover,:focus-visible,.dragging)::after{background:var(--amber)}
+  .mail-divider:is(:hover,:focus-visible,.dragging)::after{width:3px}
+  .mail-graph-divider:is(:hover,:focus-visible,.dragging)::after{height:3px}
 
   .colhead{
     display:flex;align-items:center;justify-content:space-between;
@@ -1409,6 +1416,9 @@
         </button>
       </div>
       <svg class="miniorrery" viewBox="0 0 280 120" id="orrery" hidden></svg>
+      <div class="mail-graph-divider" id="mailGraphDivider" role="separator" tabindex="0" aria-orientation="horizontal"
+           aria-controls="orrery" aria-label="Resize mini graph"
+           title="Resize mini graph with Up or Down arrows or drag. Enter or double-click to reset."></div>
       <div class="mail-selected-route" id="mailSelectedRoute" hidden></div>
       <div class="scroll" id="mail"></div>
       <!-- legend removed (2026-07-30 product decision): the design should be self-evident;
@@ -1783,7 +1793,7 @@
           },
           {
             "property": "background",
-            "selector": ".mail-divider::after",
+            "selector": ".mail-divider::after,.mail-graph-divider::after",
             "value": "var(--ink-faint)"
           },
           {
@@ -3230,7 +3240,7 @@
           },
           {
             "property": "background",
-            "selector": ".mail-divider::after",
+            "selector": ".mail-divider::after,.mail-graph-divider::after",
             "value": "var(--ink-faint)"
           },
           {
@@ -3908,7 +3918,7 @@
         "unit": "element"
       },
       "source": {
-        "digest": "a76290d1f7333a326ccddd22af8313d8ddf58f035df6e606aa521e581d0673a7",
+        "digest": "9222451d8ff3fcbb476d2d8232a267e9bdd55c3efac1228eb3c31a3b336a03bd",
         "records": [
           ".sesschip\u0000font-size",
           ".colhead\u0000font-size",
@@ -4004,7 +4014,7 @@
         "unit": "element"
       },
       "source": {
-        "digest": "50fa091b18a175418328837f78ef5706c3f9fb9fc4e4278d7011b6ac3fd944b5",
+        "digest": "998e08e3975450b0ece64a90e19434e7cc0b506d9d9ba1aa805ec90fc1b7615a",
         "records": [
           ".colhead\u0000letter-spacing",
           ".new-agent\u0000letter-spacing",
@@ -4035,9 +4045,9 @@
       }
     }
   },
-  "inventory_digest": "b818c58d74dd41ff14b386060964f7d303635f01779f16d2fb8e9afd0b4f2aee",
+  "inventory_digest": "613f14e13ad28476e047cc0b0c053692b2c0554bc5a1ef0bfb9ba7f46b0f65f0",
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "2eabab03d497b3b65cbfd36ff479e879f89b4f6fd7683172a25618cc266d5797",
+  "source_digest": "e7f35957a719c2fa2df8740c7d5931a364117e7af47c97b08f6eb95833fe855e",
   "surface": "cockpit",
   "version": 1
 }
