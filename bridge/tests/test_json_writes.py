@@ -62,3 +62,26 @@ def test_open_url_rejects_malformed_authority_without_launching(monkeypatch, tmp
             assert launched == [url]
 
     asyncio.run(scenario())
+
+
+
+def test_open_url_reports_unconfirmed_without_retrying(monkeypatch, tmp_path):
+    launched = []
+
+    def configure(ob):
+        def launch(url):
+            launched.append(url)
+            raise ob.OpenerUnconfirmed("whether it opened is not confirmed")
+        monkeypatch.setattr(ob, "launch_url", launch)
+
+    async def scenario():
+        async with private_app(monkeypatch, tmp_path, configure) as (_, client, base):
+            url = "https://example.com/?a=1&b=%22"
+            async with client.post(base + "/telemetry/open-url", json={"url": url}) as response:
+                assert response.status == 503
+                assert await response.json() == {
+                    "ok": False, "opening_unconfirmed": True, "error": "whether it opened is not confirmed",
+                }
+            assert launched == [url]
+
+    asyncio.run(scenario())

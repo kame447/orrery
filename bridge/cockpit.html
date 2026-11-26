@@ -4045,9 +4045,9 @@
       }
     }
   },
-  "inventory_digest": "459809b3d4ff6126c18f70cf56a382fb79a6bb2e0b912973a40ccb2d4db4dc0b",
+  "inventory_digest": "ef48c7e9059ac034a0dc47ad390ee6c27a840d8759eaf2dfa9f55b93b111b04f",
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "af56a04a75f05cb4699a23c1154ab7f1ad9c6fadb359eba980258f53f72a8e0f",
+  "source_digest": "5c91f321ccb9af584e746c3cc69d831f52f833aafcefe9b59287af9ad2953c04",
   "surface": "cockpit",
   "version": 1
 }
@@ -7766,6 +7766,10 @@ async function openExternalUrl(uri){
     });
     let result={};
     try{result=await response.json();}catch(_){/* HTTP status remains useful */}
+    if(result.opening_unconfirmed===true||response.status===400){
+      showToast('OPEN URL '+(result.opening_unconfirmed?'UNCONFIRMED':'REJECTED')+' · '+(result.error||'request failed'),true);
+      return false;
+    }
     if(!response.ok||!result.ok)throw new Error(result.error||`HTTP ${response.status}`);
     showToast(`URL · backend${appError?` (app: ${appError})`:''} · ${url}`);
     return true;

@@ -216,6 +216,15 @@ def test_the_opener_runs_with_the_answering_socket(monkeypatch, short_dir, tmp_p
         live.close()
 
 
+def test_the_opener_passes_literal_input_to_the_windows_process(monkeypatch, tmp_path):
+    _wsl(monkeypatch, tmp=tmp_path)
+    out = tmp_path / "url.txt"
+    url = "https://example.com/?a=1&b=%22'語".encode()
+    ob.run_opener(["sh", "-c", 'cat > "$1"', "fixture", str(out)],
+                  input_data=url, confirm=True)
+    assert out.read_bytes() == url
+
+
 # --- the exit status explorer.exe does not give -------------------------------
 
 
@@ -468,6 +477,27 @@ def _cockpit_functions(*names: str) -> str:
 
 
 NODE = shutil.which("node")
+
+
+@pytest.mark.skipif(NODE is None, reason="no node")
+@pytest.mark.parametrize(("status", "response", "prefix"), [
+    (503, {"ok": False, "opening_unconfirmed": True, "error": "not confirmed"}, "UNCONFIRMED"),
+    (400, {"ok": False, "error": "invalid URL"}, "REJECTED"),
+])
+def test_browser_does_not_retry_an_unconfirmed_or_rejected_url(status, response, prefix):
+    script = _cockpit_functions("openExternalUrl") + """
+const actions=[];
+globalThis.window={open:(...args)=>{actions.push(['open',...args]);return {};}};
+globalThis.fetch=async()=>({ok:false,status:STATUS,json:async()=>(RESPONSE)});
+function appInvoke(){return null;}
+function showToast(message,error){actions.push(['toast',message,error]);}
+openExternalUrl('https://example.com/?a=1&b=2').then(ok=>console.log(JSON.stringify({ok,actions})));
+""".replace("STATUS", str(status)).replace("RESPONSE", json.dumps(response))
+    result = subprocess.run([NODE, "-e", script], check=True, capture_output=True, text=True, timeout=20)
+    assert json.loads(result.stdout) == {
+        "ok": False,
+        "actions": [["toast", f"OPEN URL {prefix} · {response['error']}", True]],
+    }
 
 
 def _run_reveal(host: str, response: dict, status: int, clipboard) -> dict:

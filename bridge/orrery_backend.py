@@ -3381,7 +3381,7 @@ def host_platform() -> dict[str, Any]:
         problem = wsl_terminal_problem()
         terminal = {"kind": "wt", "label": "Windows Terminal",
                     "available": problem is None, "reason": problem}
-        interop = bool(windows_exe("explorer.exe") or shutil.which("wslview"))
+        interop = bool(windows_exe("explorer.exe") or shutil.which("wslview") or windows_powershell())
     else:
         # Mac and plain Linux keep the Ghostty route they always had.
         terminal = {"kind": "ghostty", "label": "Ghostty",
@@ -3603,8 +3603,13 @@ def wsl_interop_problem() -> str | None:
     return None
 
 
+class OpenerUnconfirmed(OSError):
+    """The opener may have delivered the request, but did not confirm it."""
+
+
 def run_opener(
-    argv: list[str], *, trust_exit_status: bool = True, confirm: bool = False
+    argv: list[str], *, trust_exit_status: bool = True, confirm: bool = False,
+    input_data: bytes | None = None,
 ) -> None:
     """Run `open`/`xdg-open` and raise OSError if it reports a failure.
 
@@ -3624,21 +3629,21 @@ def run_opener(
     wsl = host_kind() == "wsl"
     proc = subprocess.Popen(
         argv,
-        stdin=subprocess.DEVNULL,
+        stdin=subprocess.PIPE if input_data is not None else subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         start_new_session=True,
         env=wsl_interop_env() if wsl else None,
     )
     try:
-        _, err = proc.communicate(timeout=OPENER_WAIT_SECONDS)
+        _, err = proc.communicate(input=input_data, timeout=OPENER_WAIT_SECONDS)
     except subprocess.TimeoutExpired as exc:
         # Whatever it said before the wait ran out still counts.
         detail = (exc.stderr or b"").decode("utf-8", "replace").strip()
         if wsl and WSL_INTEROP_FAILURE_RE.search(detail):
             raise OSError(f"{argv[0]} did not start: {detail[:300]}") from None
         if confirm:
-            raise OSError(
+            raise OpenerUnconfirmed(
                 f"{argv[0]} did not finish within {OPENER_WAIT_SECONDS:g} s; "
                 "whether it opened is not confirmed"
             ) from None
@@ -3655,19 +3660,43 @@ def run_opener(
         raise OSError(message)
 
 
+# The URL reaches PowerShell as literal UTF-8 on stdin, so quoting, percent
+# escapes and query delimiters do not pass through a Windows command parser.
+_WINDOWS_OPEN_URL_PS = """
+if (([System.Diagnostics.Process]::GetCurrentProcess().SessionId -eq 0) -or
+    (-not [Environment]::UserInteractive)) {
+    throw 'The backend cannot reach the Windows desktop. Start it from Windows Terminal.'
+}
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
+Start-Process -FilePath ([Console]::In.ReadToEnd()) -ErrorAction Stop
+"""
+
+
 def launch_url(url: str) -> None:
     """Hand a web URL to the OS default browser (Windows' browser under WSL)."""
     kind = host_kind()
     if kind == "mac":
         run_opener(["open", url])
     elif kind == "wsl":
-        if shutil.which("wslview"):
-            run_opener(["wslview", url])
-            return
-        explorer = windows_exe("explorer.exe")
-        if not explorer:
-            raise OSError("no way to reach Windows from WSL: neither wslview nor explorer.exe was found")
-        run_opener([explorer, url], trust_exit_status=False)
+        if problem := wsl_interop_problem():
+            raise OSError(problem)
+        wslview = shutil.which("wslview")
+        powershell = windows_powershell()
+        if wslview:
+            try:
+                run_opener([wslview, url], confirm=True)
+                return
+            except OpenerUnconfirmed:
+                # It may already have opened a tab. Do not automatically retry.
+                raise
+            except OSError:
+                if not powershell:
+                    raise
+        if not powershell:
+            raise OSError("cannot open the Windows browser: neither wslview nor powershell.exe was found")
+        command = base64.b64encode(_WINDOWS_OPEN_URL_PS.encode("utf-16-le")).decode("ascii")
+        run_opener([powershell, "-NoProfile", "-NonInteractive", "-EncodedCommand", command],
+                   input_data=url.encode("utf-8"), confirm=True)
     else:
         run_opener(["xdg-open", url])
 
@@ -3705,6 +3734,10 @@ async def open_url(request: web.Request) -> web.Response:
         )
     try:
         await asyncio.to_thread(launch_url, url)
+    except OpenerUnconfirmed as exc:
+        return web.json_response(
+            {"ok": False, "opening_unconfirmed": True, "error": str(exc)}, status=503
+        )
     except OSError as exc:
         return web.json_response(
             {"ok": False, "error": f"failed to open browser: {exc}"}, status=500
