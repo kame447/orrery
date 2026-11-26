@@ -49,7 +49,7 @@ cockpit から入れると、子の OS ターミナル窓は既定では自動�
 | `~/orrery` | cockpit の source（起動・更新の script） |
 | `~/orrery-telemetry` | Telemetry・Mail・hook・installer の source。実際に動くのは `~/.agentstack` に入れた方 |
 | `~/.agentstack` | 実際に動いている本体、設定 `env.sh`、Mail の DB |
-| `~/orrery-work` | agent の作業 folder（project folder）。ORRERY の指示を書いた `CLAUDE.md` が入る。`+ NEW AGENT` の既定の folder。Mail と予約はこの単位 |
+| `~/orrery-work` | agent の作業 folder（project folder）。指示の既定の保存先はユーザー共通の `~/.claude/CLAUDE.md` と `~/.codex/AGENTS.md`。`+ NEW AGENT` の既定の folder。Mail と予約はこの単位 |
 
 port は cockpit が 8791、Telemetry が 8770、Mail が 18765 です。`ORRERY.app` は、8791 の cockpit を開く窓です。作業 folder の変え方とアンインストールは[作業 folder とアンインストール](#作業-folder-とアンインストール)にあります。
 
@@ -296,12 +296,12 @@ install の 1 行に `--project-key` を足します。後から変えるとき�
 curl -fsSL https://raw.githubusercontent.com/gyroid-eth/orrery/master/scripts/get.sh | bash -s -- --project-key ~/my-project
 ```
 
-**Obsidian の vault を agent に扱わせたいとき**は、`--project-key` に vault の path を渡します（例: `--project-key ~/Documents/MyVault`）。その vault の `CLAUDE.md` に ORRERY の指示の block が入ります（Codex の指示は `~/.codex/AGENTS.md` に入ります）。`CLAUDE.md` が既にあれば block だけが足され、既存の内容はそのまま残ります（[Obsidian と一緒に使う](#obsidian-と一緒に使う)）。**WSL2 では、作業 folder は Ubuntu の home の中に置きます。** Windows 側の folder（`/mnt/c/…`）を `--project-key` に渡すと、1 行の installer は何も変えずに止まります。Windows 側の vault は作業 folder にせず、作業 folder を Ubuntu の home に置いたまま、agent に `/mnt/c/…` の path を渡して扱わせます（[研究セット](docs/research-set.md)がこの形です）。
+**Obsidian の vault を agent に扱わせたいとき**は、`--project-key` に vault の path を渡します（例: `--project-key ~/Documents/MyVault`）。指示はユーザー共通の file に入り、旧 project の block の扱いは[指示の移行](https://github.com/kame447/orrery-telemetry/blob/master/docs/instruction-migration.md)を確認してください。**WSL2 では、作業 folder は Ubuntu の home の中に置きます。** Windows 側の folder（`/mnt/c/…`）を `--project-key` に渡すと、1 行の installer は何も変えずに止まります。Windows 側の vault は作業 folder にせず、作業 folder を Ubuntu の home に置いたまま、agent に `/mnt/c/…` の path を渡して扱わせます（[研究セット](docs/research-set.md)がこの形です）。
 
-- 古い folder の `CLAUDE.md` の ORRERY の block は残ります。要らなければ marker の間を手で消します。
+- 古い folder に管理 block が残る場合は[旧 block の移行](https://github.com/kame447/orrery-telemetry/blob/master/docs/instruction-migration.md#legacy-blocks)を確認してください。
 - Mail は project 単位です。変える前に起動していた agent は Telemetry に出続けますが、古い project のままで、新しい agent と Mail が通じません。EXIT して起動し直してください。
 - `+ NEW AGENT` の folder の候補は、既定では作業 folder と `~` です。変えるには `cd ~/orrery-telemetry && ./scripts/install.sh --spawn-dirs "$HOME/a:$HOME/b"`（project key は引き継がれます。指定した folder だけになるので、作業 folder も入れます）。
-- **ORRERY の指示が入っていない folder（home など）で terminal から直接 `claude` を起動すると、その指示が無いまま動きます。** `/delegate` が使われず、親子の線も出ません。作業 folder（project key の folder や vault）の中で起動すれば、その folder の `CLAUDE.md` の block が入ります。agent は `+ NEW AGENT` か `~/.agentstack/bin/agent-start <作業 folder>` で起動します。
+- 管理対象の agent は `+ NEW AGENT`、`~/.agentstack/bin/agent-start <作業 folder>`、Codex の場合は `~/.agentstack/bin/agent-start-codex <作業 folder>` で起動します。直接起動した CLI はユーザー共通の指示を読めても、管理対象の identity がなければ Mail 登録・通知の対象にはなりません。
 
 ### アンインストール
 

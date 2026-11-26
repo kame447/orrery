@@ -49,7 +49,7 @@ Installing through the cockpit defaults to keeping child OS terminal windows clo
 | `~/orrery` | The cockpit source (start and update scripts) |
 | `~/orrery-telemetry` | The source of Telemetry, Mail, hooks, and the installer. What actually runs is the copy installed in `~/.agentstack` |
 | `~/.agentstack` | The running installation, the `env.sh` settings, and the Mail DB |
-| `~/orrery-work` | The agents' work folder (the project folder). It receives a `CLAUDE.md` with ORRERY's instructions. It is the default folder of `+ NEW AGENT`. Mail and reservations are scoped to it |
+| `~/orrery-work` | The agents' work folder (the project folder). Instructions default to the user-wide `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md`. It is the default folder of `+ NEW AGENT`. Mail and reservations are scoped to it |
 
 Ports: cockpit 8791, Telemetry 8770, Mail 18765. `ORRERY.app` is a window that opens the cockpit on 8791. For changing the work folder and uninstalling, see [Work folder and Uninstall](#work-folder-and-uninstall).
 
@@ -286,12 +286,12 @@ Add `--project-key` to the install line. To change it later, run the same line a
 curl -fsSL https://raw.githubusercontent.com/gyroid-eth/orrery/master/scripts/get.sh | bash -s -- --project-key ~/my-project
 ```
 
-**To have agents work on an Obsidian vault**, pass the vault's path as `--project-key` (for example `--project-key ~/Documents/MyVault`). The vault's `CLAUDE.md` receives ORRERY's block of instructions (Codex's instructions go to `~/.codex/AGENTS.md`); if it already has a `CLAUDE.md`, only the block is added and the existing content stays ([Use it together with Obsidian](#use-it-together-with-obsidian)). **On WSL2, keep the work folder inside the Ubuntu home.** If you pass a Windows-side folder (`/mnt/c/…`) as `--project-key`, the one-line installer stops without changing anything. Do not make a Windows-side vault the work folder: keep the work folder in the Ubuntu home and hand agents the `/mnt/c/…` path to work on, as the [research set](docs/en/research-set.md) does.
+**To have agents work on an Obsidian vault**, pass the vault's path as `--project-key` (for example `--project-key ~/Documents/MyVault`). Instructions use user-wide files; see [instruction migration](https://github.com/kame447/orrery-telemetry/blob/master/docs/instruction-migration.en.md) for old project blocks. **On WSL2, keep the work folder inside the Ubuntu home.** If you pass a Windows-side folder (`/mnt/c/…`) as `--project-key`, the one-line installer stops without changing anything. Do not make a Windows-side vault the work folder: keep the work folder in the Ubuntu home and hand agents the `/mnt/c/…` path to work on, as the [research set](docs/en/research-set.md) does.
 
-- The ORRERY block in the old folder's `CLAUDE.md` stays. Delete between its markers by hand if you do not want it.
+- If an old working folder still contains a managed block, review [legacy block migration](https://github.com/kame447/orrery-telemetry/blob/master/docs/instruction-migration.en.md#legacy-blocks).
 - Mail is scoped per project. Agents that were already running keep showing in Telemetry, but they stay on the old project and cannot exchange Mail with new agents. EXIT them and start them again.
 - The folder choices of `+ NEW AGENT` are the work folder and `~` by default. To change them, use `cd ~/orrery-telemetry && ./scripts/install.sh --spawn-dirs "$HOME/a:$HOME/b"` (the project key is kept).
-- **If you start `claude` directly in a terminal from a folder without ORRERY's instructions (such as home), it runs without them.** `/delegate` is not used and no parent–child line appears. Started inside the work folder (the project-key folder or a vault), it picks up that folder's `CLAUDE.md` block. Start agents with `+ NEW AGENT` or `~/.agentstack/bin/agent-start <work folder>`.
+- Start managed agents with `+ NEW AGENT`, `~/.agentstack/bin/agent-start <work folder>`, or `~/.agentstack/bin/agent-start-codex <work folder>` for Codex. A directly started CLI may read user-wide instructions but does not register for Mail or notifications without a managed identity.
 
 ### Uninstall
 
