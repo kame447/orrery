@@ -4,7 +4,7 @@
 
 <img src="app/icons-src/orrery-1024.png" alt="ORRERY icon" width="96">
 
-ORRERY は、Claude Code・Codex CLI・DeepSeek・Local modelsのagentをチームとして扱うcockpitです。DeepSeek・Local modelsは、設定した接続先のモデルをdshまたはHermesで動かします。どの agent が返事を待っているかを窓から窓へ探し回る必要はありません。何体動かしていても、人の判断を待っている agent だけが roster で点滅して一目で分かり、全員のターミナル・agent 同士のやり取り・残りの利用枠を一つの画面で見渡しながら、そのまま指示を送れます。Mac（`ORRERY.app` とブラウザ）と Windows（WSL2 とブラウザ）で使え、[ORRERY Telemetry](https://github.com/gyroid-eth/orrery-telemetry) と連携します。[OS・機能ごとの確認状況](docs/install.md#動作環境)も確認してください。
+ORRERY は、Claude Code・Codex CLI・Gemini（Antigravity CLI、追加 provider 導入時）・DeepSeek・Local modelsのagentをチームとして扱うcockpitです。DeepSeek・Local modelsは、設定した接続先のモデルをdshまたはHermesで動かします。どの agent が返事を待っているかを窓から窓へ探し回る必要はありません。何体動かしていても、人の判断を待っている agent だけが roster で点滅して一目で分かり、全員のターミナル・agent 同士のやり取り・残りの利用枠を一つの画面で見渡しながら、そのまま指示を送れます。Mac（`ORRERY.app` とブラウザ）と Windows（WSL2 とブラウザ）で使え、[ORRERY Telemetry](https://github.com/gyroid-eth/orrery-telemetry) と連携します。[OS・機能ごとの確認状況](docs/install.md#動作環境)も確認してください。
 
 ## クイックスタート
 
@@ -23,12 +23,13 @@ curl -fsSL https://raw.githubusercontent.com/gyroid-eth/orrery/master/scripts/ge
     Open:          http://127.0.0.1:8791/cockpit.html
 ```
 
-表示されたURLをブラウザで開きます。`WARN`や`NG`が出たら、その内容と[対処手順](docs/install.md#1-行で入れる更新する)を確認してください。共通の導入後は、使う系統に応じて準備します。4系統すべてを使う必要はありません。
+表示されたURLをブラウザで開きます。`WARN`や`NG`が出たら、その内容と[対処手順](docs/install.md#1-行で入れる更新する)を確認してください。共通の導入後は、使う系統に応じて準備します。すべての系統を使う必要はありません。
 
 | 使う系統 | 準備するもの | 手順 |
 | --- | --- | --- |
 | Claude Code | Claude CodeのCLIとログイン | [Mac](docs/install.md#mac) / [WSL](docs/install.md#windows-11) |
 | Codex CLI | Codex CLIとログイン | [Mac](docs/install.md#mac) / [WSL](docs/install.md#windows-11) |
+| Gemini（Antigravity） | `agy` の導入・サインイン、Telemetry の追加 provider の導入 | [Gemini の導入ガイド](https://github.com/kame447/orrery-telemetry/blob/master/docs/antigravity.md) |
 | DeepSeek | APIキーとAPI利用残高、dshまたはHermes、接続設定 | [API初期設定](https://github.com/gyroid-eth/orrery-telemetry/blob/master/docs/native-setup.md) |
 | Local models | 対応APIのURL・model ID・サーバー専用キー、dshまたはHermes、接続設定 | [API初期設定](https://github.com/gyroid-eth/orrery-telemetry/blob/master/docs/native-setup.md) |
 
@@ -115,7 +116,7 @@ legacy では Codex と、Telemetry API 35 以降で紐付けを確認した Cla
 
 ### 科学者の顔とモデルを選んで起動する（NEW AGENT）
 
-`+ NEW AGENT` で科学者の肖像を選ぶと名前が決まり、形容詞は調整できます。Claude・Codex・DeepSeek・Local models の4系統から model を、DeepSeek と Local では dsh / Hermes の Harness も選べます。利用できる model と Harness は導入済みの設定によって変わります。
+`+ NEW AGENT` で科学者の肖像を選ぶと名前が決まり、形容詞は調整できます。Claude・Codex・Gemini（画面では Antigravity）・DeepSeek・Local models から model を、DeepSeek と Local では dsh / Hermes の Harness も選べます。利用できる model と Harness は導入済みの設定によって変わります。Gemini は対応環境で追加 provider を導入し、稼働中の agent が安全に終了してから Dashboard を再起動すると選べます。model の系統と Effort を選択します。現在の Gemini 起動は親 agent を持つ legacy の委任経路が対象で、単独起動や fresh mode の対応を保証するものではありません。詳細は [Gemini の導入ガイド](https://github.com/kame447/orrery-telemetry/blob/master/docs/antigravity.md) を参照してください。
 
 **DeepSeek・dsh / Hermesを初めて使う人へ:** 通常の更新だけでは、APIキーや接続先は設定されません。cockpitにはAPIキーを入力する画面はありません。次の順で準備します。
 

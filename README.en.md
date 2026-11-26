@@ -4,7 +4,7 @@
 
 <img src="app/icons-src/orrery-1024.png" alt="ORRERY icon" width="96">
 
-ORRERY is a cockpit for teams using Claude Code, Codex CLI, DeepSeek, or Local models. DeepSeek and Local agents use dsh or Hermes with a configured API connection. You do not have to hunt from window to window for the agent that is waiting for your reply. However many agents you run, only the ones waiting for a human decision blink in the roster so you can spot them at a glance, and you see every terminal, the traffic between agents, and your remaining usage quota on one screen while sending instructions from the same place. It runs on Mac (`ORRERY.app` and a browser) and on Windows (WSL2 and a browser), and works with [ORRERY Telemetry](https://github.com/gyroid-eth/orrery-telemetry). See the [verification status by OS and feature](docs/en/install.md#requirements).
+ORRERY is a cockpit for teams using Claude Code, Codex CLI, Gemini through Antigravity CLI (with the optional provider installed), DeepSeek, or Local models. DeepSeek and Local agents use dsh or Hermes with a configured API connection. You do not have to hunt from window to window for the agent that is waiting for your reply. However many agents you run, only the ones waiting for a human decision blink in the roster so you can spot them at a glance, and you see every terminal, the traffic between agents, and your remaining usage quota on one screen while sending instructions from the same place. It runs on Mac (`ORRERY.app` and a browser) and on Windows (WSL2 and a browser), and works with [ORRERY Telemetry](https://github.com/gyroid-eth/orrery-telemetry). See the [verification status by OS and feature](docs/en/install.md#requirements).
 
 ## Quick start
 
@@ -23,12 +23,13 @@ Read the plan. To proceed, **type `yes` and press Enter**; `y` or Enter alone st
     Open:          http://127.0.0.1:8791/cockpit.html
 ```
 
-Open the printed URL in your browser. If you see `WARN` or `NG`, read the message and the [installation guidance](docs/en/install.md#install-or-update-with-one-line). After the shared installation, prepare the provider family you want to use. You do not need all four.
+Open the printed URL in your browser. If you see `WARN` or `NG`, read the message and the [installation guidance](docs/en/install.md#install-or-update-with-one-line). After the shared installation, prepare the provider family you want to use. You do not need every provider family.
 
 | Provider family | What to prepare | Steps |
 | --- | --- | --- |
 | Claude Code | Claude Code CLI and sign-in | [Mac](docs/en/install.md#mac) / [WSL](docs/en/install.md#windows-11) |
 | Codex CLI | Codex CLI and sign-in | [Mac](docs/en/install.md#mac) / [WSL](docs/en/install.md#windows-11) |
+| Gemini (Antigravity) | Install and sign in to `agy`, and install the optional Telemetry provider | [Gemini setup guide](https://github.com/kame447/orrery-telemetry/blob/master/docs/antigravity.en.md) |
 | DeepSeek | An API key and API balance, dsh or Hermes, and connection settings | [API setup](https://github.com/gyroid-eth/orrery-telemetry/blob/master/docs/native-setup.en.md) |
 | Local models | Compatible API URL, model ID, server-specific key, dsh or Hermes, and connection settings | [API setup](https://github.com/gyroid-eth/orrery-telemetry/blob/master/docs/native-setup.en.md) |
 
@@ -111,7 +112,7 @@ Legacy mode reads Codex and, with Telemetry API 35 or later, bound Claude Code, 
 
 ### Choose a scientist's portrait and a model (NEW AGENT)
 
-Open `+ NEW AGENT` and select a scientist's portrait to generate a name; you can adjust its adjective. Choose a model from Claude, Codex, DeepSeek, or Local models. DeepSeek and Local also offer a dsh / Hermes Harness choice. Available models and harnesses depend on your installed configuration.
+Open `+ NEW AGENT` and select a scientist's portrait to generate a name; you can adjust its adjective. Choose a model from Claude, Codex, Gemini (shown as Antigravity), DeepSeek, or Local models. DeepSeek and Local also offer a dsh / Hermes Harness choice. Available models and harnesses depend on your installed configuration. On a supported setup, install the optional Gemini provider and restart the Dashboard only after active agents have safely finished. Select a model family and effort. Gemini launches currently use the legacy delegated path with a parent agent; standalone launch and fresh mode support are not guaranteed. See the [Gemini setup guide](https://github.com/kame447/orrery-telemetry/blob/master/docs/antigravity.en.md).
 
 **First-time setup for DeepSeek, dsh, and Hermes:** A normal update does not set up API keys or connections. The cockpit has no API-key entry screen. Prepare them in this order:
 
