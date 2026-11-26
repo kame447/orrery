@@ -944,11 +944,12 @@ def list_tmux_sessions(tmux_bin: str) -> list[dict[str, Any]]:
                 catalog_truncated=tmux_bin.truncated,**target.ref))
         return sessions
     # A concurrent first pin must not turn an older roster reply into a warning.
-    watched_pid = None
+    watched_pid = watched_generation = None
     if isinstance(tmux_bin, LegacyTargetBoundary):
         with tmux_bin._pin_lock:
             if tmux_bin.pin is not None:
                 watched_pid = tmux_bin.pin['server_pid']
+                watched_generation = tmux_bin.generation
     result = subprocess.run(
         tmux_argv(tmux_bin, "list-sessions", "-F", SESSION_FORMAT),
         capture_output=True,
@@ -976,6 +977,7 @@ def list_tmux_sessions(tmux_bin: str) -> list[dict[str, Any]]:
             if watched_pid is not None:
                 with tmux_bin._pin_lock:
                     if (tmux_bin.pin is not None
+                            and tmux_bin.generation == watched_generation
                             and tmux_bin.pin['server_pid'] == watched_pid):
                         tmux_bin.observe_server_pid(
                             int(server_pid) if server_pid.isdecimal() else None)
@@ -998,7 +1000,7 @@ def list_tmux_sessions(tmux_bin: str) -> list[dict[str, Any]]:
 
 
 SESSION_LIST_SHARE_SECONDS = 2.0
-_session_list_shared: dict[Any, tuple[float, "asyncio.Task[list[dict[str, Any]]]"]] = {}
+_session_list_shared: dict[Any, tuple[float, "asyncio.Task[list[dict[str, Any]]]", int | None]] = {}
 
 
 async def shared_session_list(tmux_bin) -> list[dict[str, Any]]:
@@ -1012,28 +1014,38 @@ async def shared_session_list(tmux_bin) -> list[dict[str, Any]]:
     session that appears is still seen within that much of the ordinary beat.
     """
     key = tmux_bin if isinstance(tmux_bin, str) else id(tmux_bin)
+
+    def legacy_generation():
+        return tmux_bin.generation if isinstance(tmux_bin, LegacyTargetBoundary) else None
+
     while True:
         now = time.monotonic()
         shared = _session_list_shared.get(key)
+        generation = legacy_generation()
         if (
             shared is None
             or shared[1].get_loop() is not asyncio.get_running_loop()
+            or shared[2] != generation
             or (shared[1].done() and now - shared[0] >= SESSION_LIST_SHARE_SECONDS)
         ):
             task = asyncio.ensure_future(asyncio.to_thread(list_tmux_sessions, tmux_bin))
-            _session_list_shared[key] = shared = (now, task)
+            _session_list_shared[key] = shared = (now, task, generation)
             # a failure is also shared for that long, but never kept beyond it
             task.add_done_callback(lambda finished: finished.cancelled() or finished.exception())
         try:
             sessions = await asyncio.shield(shared[1])
         except Exception:
-            if _session_list_shared.get(key) is not shared:
-                continue
-            raise
-        # A rebind can retire this entry while its subprocess is running.
-        # Existing waiters must also use the newly verified server's roster.
+            if (_session_list_shared.get(key) is shared
+                    and generation == legacy_generation()):
+                raise
+        else:
+            if (_session_list_shared.get(key) is shared
+                    and generation == legacy_generation()):
+                return sessions
+        # Even a direct rebind (without manager invalidation) retires old
+        # results and errors. Never remove a newer caller's shared task.
         if _session_list_shared.get(key) is shared:
-            return sessions
+            _session_list_shared.pop(key)
 
 
 def invalidate_shared_session_list(tmux_bin) -> None:

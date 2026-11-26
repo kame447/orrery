@@ -230,8 +230,9 @@ def test_recovery_errors_are_rate_limited(capsys):
     assert capsys.readouterr().err.count("TMUX_SOCKET_CHANGED") == 1
 
 
+@pytest.mark.parametrize("via_manager", [True, False], ids=["manager", "direct-rebind"])
 @pytest.mark.parametrize("old_result", ["cached", "pending", "pending-error"])
-def test_rebound_server_replaces_shared_roster_for_all_waiters(monkeypatch, tmp_path, old_result):
+def test_rebound_server_replaces_shared_roster_for_all_waiters(monkeypatch, tmp_path, old_result, via_manager):
     boundary = LegacyTargetBoundary("tmux", home=tmp_path, environ={})
     boundary.shared = {}
     boundary.pin = {"server_pid": 41}
@@ -249,7 +250,9 @@ def test_rebound_server_replaces_shared_roster_for_all_waiters(monkeypatch, tmp_
         nonlocal current
         with boundary._pin_lock:
             current = "after"
-            boundary.pin = {"server_pid": 42}
+            # Model a reused PID as well as a different socket identity.
+            boundary.pin = {"server_pid": 42 if via_manager else 41}
+            boundary.generation += 1
             boundary.tmux_restarted = False
         return True
 
@@ -263,7 +266,12 @@ def test_rebound_server_replaces_shared_roster_for_all_waiters(monkeypatch, tmp_
                 assert release.wait(10), "old roster was not released"
             if old_result == "pending-error":
                 raise OSError("retired tmux server")
-        created, pid = (1, 41) if observed == "before" else (2, 42)
+        if via_manager:
+            created, pid = (1, 41) if observed == "before" else (2, 42)
+        else:
+            # An old query observed an intermediate PID, but the current
+            # consumer has re-pinned a successor with the original PID.
+            created, pid = (1, 42) if observed == "before" else (2, 41)
         return subprocess.CompletedProcess(args, 0,
             f"{observed}\t0\t1\t{created}\t{pid}\n", "")
 
@@ -282,8 +290,15 @@ def test_rebound_server_replaces_shared_roster_for_all_waiters(monkeypatch, tmp_
             assert await asyncio.to_thread(started.wait, 10), "old roster did not start"
             if old_result == "cached":
                 assert await first == rosters["before"]
-            assert await manager._recover_legacy_socket()
+            if via_manager:
+                assert await manager._recover_legacy_socket()
+            else:
+                assert await asyncio.to_thread(boundary.rebind_server)
             release.set()
+            if old_result != "cached" and not via_manager:
+                # A waiter must discard a retired reply even if no new caller
+                # has replaced the cache entry yet.
+                assert await first == rosters["after"]
             assert await ob.shared_session_list(boundary) == rosters["after"]
             if old_result != "cached":
                 assert await first == rosters["after"]
