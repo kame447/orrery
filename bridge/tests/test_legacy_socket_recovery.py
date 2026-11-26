@@ -78,6 +78,29 @@ def test_replaced_socket_is_not_retried_inside_a_refused_admission(default_serve
     assert boundary.admit("capture", session="after")["allowed"]
 
 
+def test_rebind_refuses_successor_replaced_during_global_proofs(default_server, monkeypatch):
+    binary, home, env, socket, run = default_server
+    boundary = LegacyTargetBoundary(binary, home=home, environ=env)
+    original = boundary.pin.copy()
+    run("kill-server")
+    run("new-session", "-d", "-s", "candidate", "sleep", "300")
+    global_proofs = boundary.shared["global_proofs"]
+
+    def replace_during_proof(*args, **kwargs):
+        result = global_proofs(*args, **kwargs)
+        run("kill-server")
+        run("new-session", "-d", "-s", "successor", "sleep", "300")
+        return result
+
+    with monkeypatch.context() as scoped:
+        scoped.setitem(boundary.shared, "global_proofs", replace_during_proof)
+        with pytest.raises(TargetRefused, match="^TMUX_SOCKET_CHANGED$"):
+            boundary.rebind_server()
+    assert boundary.pin == original
+    assert boundary.rebind_server()
+    assert boundary.admit("capture", session="successor")["allowed"]
+
+
 def test_recorder_rebuilds_bridges_and_preserves_new_session(default_server):
     binary, home, env, socket, run = default_server
     boundary = LegacyTargetBoundary(binary, home=home, environ=env)

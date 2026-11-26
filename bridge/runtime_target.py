@@ -502,9 +502,14 @@ class LegacyTargetBoundary:
                 # Global ownership must still be provable; no fallback to a
                 # guessed legacy target when the shared inventory is uncertain.
                 self.shared['global_proofs'](self.home)
-                self.transport = refreshed
+                # The successor can itself disappear while global ownership
+                # is checked. Do not publish a pin for a retired endpoint.
+                confirmed = self.shared['legacy_transport'](binary=self.binary, environ=self.environment)
+                if confirmed.identity != refreshed.identity or confirmed.public() != public:
+                    raise TargetRefused('TMUX_SOCKET_CHANGED')
+                self.transport = confirmed
                 self.pin = public
-                self.prefix = refreshed.argv
+                self.prefix = confirmed.argv
                 self._pane_proofs.clear()
                 # A verified recorder rebind starts a new warning generation.
                 self.tmux_restarted = False
