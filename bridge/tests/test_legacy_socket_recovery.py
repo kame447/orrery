@@ -329,3 +329,33 @@ def test_stale_admission_does_not_restore_restart_warning(monkeypatch, tmp_path)
             pending.result(timeout=10)
 
     assert not boundary.tmux_restarted
+
+
+@pytest.mark.parametrize("cached", [True, False])
+def test_admission_started_before_rebind_never_targets_successor(default_server, monkeypatch, cached):
+    binary, home, env, socket, run = default_server
+    boundary = LegacyTargetBoundary(binary, home=home, environ=env)
+    if cached:
+        assert boundary.admit("capture", session="before", reuse=True)["allowed"]
+    key = "panes" if cached else "legacy_transport"
+    original = boundary.shared[key]
+    replaced = False
+
+    def rollover(*args, **kwargs):
+        nonlocal replaced
+        if replaced:
+            return original(*args, **kwargs)
+        replaced = True
+        old_rows = original(*args, **kwargs) if cached else None
+        run("kill-server")
+        run("new-session", "-d", "-s", "before", "sleep", "300")
+        assert boundary.rebind_server()
+        return old_rows if cached else original(*args, **kwargs)
+
+    with monkeypatch.context() as scoped:
+        scoped.setitem(boundary.shared, key, rollover)
+        with pytest.raises(TargetRefused, match="^TMUX_SOCKET_CHANGED$"):
+            boundary.admit("capture", session="before", reuse=cached)
+    assert replaced
+    assert not boundary.tmux_restarted
+    assert boundary.admit("capture", session="before")["allowed"]

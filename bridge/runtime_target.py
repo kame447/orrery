@@ -413,6 +413,7 @@ class LegacyTargetBoundary:
         self.transport = None
         self.pin = None
         self.tmux_restarted = False
+        self.generation = 0
         self._pane_proofs = {}
         self.validate = None
         self._settings_stamp = None
@@ -513,6 +514,7 @@ class LegacyTargetBoundary:
                 self._pane_proofs.clear()
                 # A verified recorder rebind starts a new warning generation.
                 self.tmux_restarted = False
+                self.generation += 1
                 return True
         except TargetRefused:
             raise
@@ -643,22 +645,30 @@ class LegacyTargetBoundary:
         try:
             key = (session, pane, window)
             cacheable = reuse and window is None and operation in ('input', 'capture')
+            with self._pin_lock:
+                generation, transport = self.generation, self.transport
             # The cheap shared pane query validates the pinned socket inode
             # on both sides. PID/membership changes invalidate a cached proof.
-            if cacheable and self.transport.identity is not None:
-                rows = self.shared['panes'](self.transport, session=session, pane=pane)
+            if cacheable and transport.identity is not None:
+                rows = self.shared['panes'](transport, session=session, pane=pane)
                 with self._pin_lock:
+                    if generation != self.generation:
+                        raise TargetRefused('TMUX_SOCKET_CHANGED')
                     cached = self._pane_proofs.get(key)
-                if cached and time.monotonic() < cached[0] and rows == cached[1]:
-                    return {**cached[2], 'operation': operation}
+                    if cached and time.monotonic() < cached[0] and rows == cached[1]:
+                        return {**cached[2], 'operation': operation}
             proof_started = time.monotonic()
             with self._pin_lock:
+                if generation != self.generation:
+                    raise TargetRefused('TMUX_SOCKET_CHANGED')
                 admitted_server_pid = self.pin['server_pid'] if self.pin is not None else None
             refreshed = self.shared['legacy_transport'](binary=self.binary, environ=self.environment)
             public = refreshed.public()
             self.validate({'contract':self.shared['CONTRACT'],'ok':True,**public},
                           self.shared['result_schema']('legacy-transport'))
             with self._pin_lock:
+                if generation != self.generation:
+                    raise TargetRefused('TMUX_SOCKET_CHANGED')
                 # A retired admission cannot re-latch the warning after rebind.
                 if (self.pin is not None
                         and self.pin['server_pid'] == admitted_server_pid):
@@ -672,6 +682,8 @@ class LegacyTargetBoundary:
                 **selector, operation=operation)
             self.validate(value, self.shared['result_schema']('legacy-target'))
             with self._pin_lock:
+                if generation != self.generation:
+                    raise TargetRefused('TMUX_SOCKET_CHANGED')
                 self.shared['check_pinned_transport'](self.pin, value)
                 if cacheable:
                     rows = [{k:v for k,v in row.items() if k != 'process_start'} for row in value['panes']]
@@ -682,6 +694,8 @@ class LegacyTargetBoundary:
                 else:
                     self._pane_proofs.clear()
             return value
+        except TargetRefused:
+            raise
         except (Exception, SystemExit) as exc:
             self._helper_failure(exc)
             self._fallback_admit()
