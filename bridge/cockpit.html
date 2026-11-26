@@ -4045,9 +4045,9 @@
       }
     }
   },
-  "inventory_digest": "ef48c7e9059ac034a0dc47ad390ee6c27a840d8759eaf2dfa9f55b93b111b04f",
+  "inventory_digest": "e49602bcecb9347f2f5e8beb96bcd992b66ce171b2c889524987548d8a631006",
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "5c91f321ccb9af584e746c3cc69d831f52f833aafcefe9b59287af9ad2953c04",
+  "source_digest": "74bb15b3efeab2f4a7dfacd2fbef301b0f0991385a7d906a92e6b16fe99a3c3d",
   "surface": "cockpit",
   "version": 1
 }
@@ -10478,7 +10478,9 @@ function renderProviderTabs(keepChoice=false){
     providerTabs.append(b);
   });
   const local=selFamily==='local',choices=entries.filter(e=>e.family===selFamily);
-  spawnModelSearch.hidden=spawnModelSearchField.hidden=!local&&choices.length<spawnSearchThreshold;
+  const rowCount=selFamily==='gemini'?[...new Set(choices.map(e=>e.provider))].reduce((count,provider)=>count+
+    SpawnPicker.displayModels(provider,choices.filter(e=>e.provider===provider).map(e=>e.model)).length,0):choices.length;
+  spawnModelSearch.hidden=spawnModelSearchField.hidden=!local&&rowCount<spawnSearchThreshold;
   const hadDynamicSelection=Number.isInteger(selUrlIndex);
   let selected=choices.find(e=>e.provider.id===selProvider&&e.model.id===selModel&&
     (!Number.isInteger(e.model.url_index)||e.model.url_index===selUrlIndex)&&(!e.model.url_key||e.model.url_key===selUrlKey));
@@ -10612,12 +10614,14 @@ function renderSpawnModelChip(){
   if(maker)spawnModelMark.append(spawnBrand(maker.asset+'.svg'));
   spawnModelMark.classList.toggle('spawn-local-maker',Boolean(maker));
   spawnModelMark.title=maker?maker.label+' · Local':'';
-  const name=model?.display_name||model?.id||'Model';
+  const modelFamily=provider?.id==='gemini'&&model?SpawnPicker.modelLabel(provider,model):'';
+  const groupedGemini=Boolean(modelFamily&&modelFamily!==model.id);
+  const name=groupedGemini?modelFamily:model?.display_name||model?.id||'Model';
   spawnModelLabel.textContent=compactSpawnModelLabel(name);
   const info=effortsForModel(provider,selModel);
   const effort=effectiveSpawnEffort(provider,selModel);
   const harness=provider&&model&&SpawnPicker.harnesses(provider,model).find(h=>h.id===selHarness);
-  const description=[name,model?.id!==name?model?.id:'',spawnModelMark.title,harness?.label,effort].filter(Boolean).join(' · ');
+  const description=[name,!groupedGemini&&model?.id!==name?model?.id:'',spawnModelMark.title,harness?.label,effort].filter(Boolean).join(' · ');
   spawnModelButton.title=description;spawnModelButton.setAttribute('aria-label','Model and effort: '+description);
   spawnPips.hidden=!info.efforts?.length;
   const index=info.efforts?.indexOf(effort)??-1;
@@ -10732,7 +10736,9 @@ function renderModels(){
     parent.appendChild(label);
   };
   if(query){
-    const matches=[...current,...older].filter(model=>model.id.toLowerCase().includes(query));
+    const matches=[...current,...older].filter(model=>model.id.toLowerCase().includes(query)||
+      (provider.id==='gemini'&&rows.some(row=>SpawnPicker.modelLabel(provider,row)===SpawnPicker.modelLabel(provider,model)&&
+        row.id.toLowerCase().includes(query))));
     matches.forEach(model=>addModel(modelChoices,model));
     if(!matches.length){
       const empty=document.createElement('p');empty.className='spawn-empty';empty.textContent='No models found. Try another name.';
