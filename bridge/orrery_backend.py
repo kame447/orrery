@@ -1206,6 +1206,7 @@ class SessionBridgeManager:
         self._rebind_error: tuple[str, float] | None = None
         self._legacy_epoch = 0
         self._legacy_peer_epoch: dict[Any, int] = {}
+        self._legacy_retiring: list[tuple[SessionState, subprocess.Popen | None]] | None = None
 
     def _log_attach_error(self, session: str, exc: Exception) -> None:
         reason = str(exc) if isinstance(exc, TargetRefused) else type(exc).__name__
@@ -1229,22 +1230,27 @@ class SessionBridgeManager:
         if not isinstance(boundary, LegacyTargetBoundary):
             return True
         try:
-            if not await asyncio.to_thread(boundary.socket_replaced):
-                return True
+            if (self._legacy_retiring is None
+                    and not await asyncio.to_thread(boundary.socket_replaced)
+                    and self._legacy_retiring is None):
+                return not self._closed
             async with self._lock:
                 if self._closed:
                     return False
-                if not await asyncio.to_thread(boundary.socket_replaced):
-                    return True
-                obsolete = list(self.states.values())
-                self.states.clear()
-                # A pane ID or session name may be reused on the new server;
-                # invalidate every earlier WebSocket attachment generation.
-                self._legacy_epoch += 1
-                # Old pane IDs can recur on the next server. Force each
-                # attached browser peer to reconnect and request a new proof.
-                # Close only the cockpit websockets, never the agent sessions.
-                peers = {peer for state in obsolete for peer in state.bridge.clients}
+                if self._legacy_retiring is None:
+                    if not await asyncio.to_thread(boundary.socket_replaced):
+                        return True
+                    self._legacy_retiring = [
+                        (state, state.bridge.process) for state in self.states.values()
+                    ]
+                    self.states.clear()
+                    self._legacy_epoch += 1
+                    invalidate_shared_session_list(boundary)
+
+                # Keep failed retirements, including the original guard handle,
+                # until stop succeeds and the guard has actually exited.
+                retiring = self._legacy_retiring
+                peers = {peer for state, _ in retiring for peer in state.bridge.clients}
                 async def close_peer(peer):
                     response = getattr(peer, "response", None)
                     if response is not None:
@@ -1252,13 +1258,22 @@ class SessionBridgeManager:
                             code=1012, message=b"tmux server restarted"), timeout=2)
                 await asyncio.gather(*(close_peer(peer) for peer in peers),
                                      return_exceptions=True)
-                await asyncio.gather(
-                    *(self._stop_bridge(state) for state in obsolete),
+                # Window claims belong to the retired server, not a same-name
+                # replacement. Stop only the manager-owned control clients.
+                results = await asyncio.gather(
+                    *(state.bridge.stop() for state, _ in retiring),
                     return_exceptions=True,
                 )
+                self._legacy_retiring = [
+                    (state, process) for (state, process), result in zip(retiring, results)
+                    if isinstance(result, BaseException)
+                    or (process is not None and process.poll() is None)
+                ]
+                if self._legacy_retiring:
+                    raise TargetRefused("TMUX_CONTROL_RETIRE_FAILED")
                 rebound = await asyncio.to_thread(boundary.rebind_server)
-                if rebound:
-                    invalidate_shared_session_list(boundary)
+                invalidate_shared_session_list(boundary)
+                self._legacy_retiring = None
             if rebound:
                 print("ORRERY recorder revalidated a restarted tmux server",
                       file=sys.stderr, flush=True)
@@ -1369,6 +1384,8 @@ class SessionBridgeManager:
         async with self._lock:
             if self._closed:
                 return None
+            if self._legacy_retiring is not None:
+                raise TargetRefused("TMUX_SOCKET_CHANGED")
             state = self.states.get(session)
             if state is not None:
                 return state
@@ -1856,12 +1873,15 @@ class SessionBridgeManager:
             states = list(self.states.values())
             self.states.clear()
             self._legacy_peer_epoch.clear()
+            retiring = self._legacy_retiring or []
+            self._legacy_retiring = None
         if roster_task is not None:
             roster_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await roster_task
         await asyncio.gather(
             *(self._stop_bridge(state) for state in states),
+            *(state.bridge.stop() for state, _ in retiring),
             return_exceptions=True,
         )
 

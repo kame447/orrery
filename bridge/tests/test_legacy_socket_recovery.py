@@ -374,3 +374,54 @@ def test_admission_started_before_rebind_never_targets_successor(default_server,
     assert replaced
     assert not boundary.tmux_restarted
     assert boundary.admit("capture", session="before")["allowed"]
+
+
+@pytest.mark.parametrize("finish", ["retry", "close"])
+@pytest.mark.parametrize("failure", ["stop-error", "process-still-alive"])
+def test_retirement_failure_blocks_rebind_and_retries(monkeypatch, tmp_path, failure, finish):
+    from types import SimpleNamespace
+
+    async def scenario():
+        boundary = LegacyTargetBoundary("tmux", home=tmp_path, environ={})
+        manager = SessionBridgeManager(boundary, history_dir=tmp_path)
+        events = []
+        can_stop = False
+        process = SimpleNamespace(poll=lambda: 0 if can_stop else None)
+
+        async def stop():
+            events.append("stop")
+            if failure == "stop-error" and not can_stop:
+                raise OSError("stop interrupted")
+            # Production stop consumes the guard handle even if wait timed out.
+            bridge.process = None
+
+        def rebind():
+            events.append("rebind")
+            boundary.generation += 1
+            return True
+
+        monkeypatch.setattr(boundary, "socket_replaced", lambda: True)
+        monkeypatch.setattr(boundary, "rebind_server", rebind)
+        bridge = SimpleNamespace(stop=stop, process=process, clients=set())
+        manager.states["same-name"] = ob.SessionState(bridge=bridge)
+        try:
+            assert not await manager._recover_legacy_socket()
+            assert boundary.generation == 0 and not manager.states
+            assert events == ["stop"]
+            with pytest.raises(TargetRefused, match="^TMUX_SOCKET_CHANGED$"):
+                await manager._ensure_bridge("same-name")
+            can_stop = True
+            if finish == "close":
+                await manager.close()
+                assert boundary.generation == 0
+                assert events == ["stop", "stop"]
+                assert manager._legacy_retiring is None
+            else:
+                assert await manager._recover_legacy_socket()
+                assert boundary.generation == 1
+                assert events == ["stop", "stop", "rebind"]
+        finally:
+            can_stop = True
+            await manager.close()
+
+    asyncio.run(scenario())
