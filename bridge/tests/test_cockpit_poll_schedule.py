@@ -244,6 +244,8 @@ FETCH = r"""
 const document={hidden:false,dispatchEvent(){}};const networkOverlay={classList:{contains:()=>false}};
 class CustomEvent{constructor(t,o){this.type=t;this.detail=o&&o.detail;}}
 let lineageParent=new Map([['Kid','Mom']]);const seenMsg=new Set();let mailSince=0;const mailBacklog=[];
+let communicationEdges=[],graphTopologyKey='';const currentAgents=[];
+function assignLineageHues(){}
 const asked=[];let reply;
 function fetch(url,opts){asked.push(url);return Promise.resolve(reply);}
 const json=(status,body)=>({ok:status>=200&&status<300,status,json:()=>Promise.resolve(body)});
@@ -260,17 +262,16 @@ def run_polls(steps: str):
     return json.loads(done.stdout)
 
 
-def test_the_requests_ask_the_same_endpoints_as_before():
-    """Same URLs, so the dashboard computes and returns the same payloads."""
+def test_graph_uses_lightweight_topology_and_mail_keeps_its_window():
     r = run_polls("""
-      reply=json(200,{spawn:[]});await pollGraph();
+      reply=json(200,{spawn:[],edges:[]});await pollGraph();
       reply=json(200,{ok:true,messages:[]});await pollMail();return asked;""")
-    assert r == ["/telemetry/graph?all=1&spawn_only=1", "/telemetry/messages?since=0&limit=40"]
+    assert r == ["/telemetry/graph?all=1&topology_only=1", "/telemetry/messages?since=0&limit=40"]
 
 
 def test_a_graph_answer_replaces_the_lineage():
     r = run_polls("""
-      reply=json(200,{spawn:[{source:'Dad',target:'Kid'}]});const ok=await pollGraph();
+      reply=json(200,{spawn:[{source:'Dad',target:'Kid'}],edges:[]});const ok=await pollGraph();
       return {ok:ok!==false,lineage:[...lineageParent]};""")
     assert r == {"ok": True, "lineage": [["Kid", "Dad"]]}
 

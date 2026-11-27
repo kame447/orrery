@@ -8701,6 +8701,8 @@ const LINEAGE_PALETTE=["#5fb3a3","#b58be0","#83b06a","#e0a45f","#6f9bd1","#cf7f9
                        "#7ec8b1","#bfa14a","#9d8cd0","#6fbf8f","#d09a6f","#8fb0cf"];
 const lineageHue=new Map();        // agent name -> hex (by spawn root)
 let lineageParent=new Map();       // child -> parent (spawn edge)
+let communicationEdges=[];
+let graphTopologyKey='';
 function rootOf(n){let cur=n,g=0;const seen=new Set();
   while(lineageParent.has(cur)&&!seen.has(cur)&&g++<128){seen.add(cur);cur=lineageParent.get(cur);}return cur;}
 // strip the leading activity glyph from a pane title: whitespace + Braille
@@ -9645,26 +9647,37 @@ async function pollMail(){
   }catch(e){return false;/* keep last render */}
 }
 
-/* ── spawn lineage — parent/child map from /api/graph spawn edges ──
-   Only the parent map is built here; hues are assigned in pollAgents across the
-   roots of the *visible* agents, so the small palette never collides on screen. */
+/* Relationships persist independently of the short live-mail animation. */
 async function pollGraph(){
-  // spawn_only=1 asks for the lineage alone; the cockpit never reads the rest
-  // of the graph, and the full payload runs to ~750KB.  While the telemetry
-  // overlay is up the embedded dashboard polls the graph itself, so stepping
-  // aside here keeps one webview from parsing it twice.  The first call goes
-  // through even then — the lineage has to exist before the first roster paint.
-  // (A hidden tab is not polled at all: startPoll below.)
-  if(lineageParent.size&&
+  // The topology projection skips expensive node details on the dashboard.
+  if(graphTopologyKey&&
      (document.hidden||networkOverlay.classList.contains('on')))return;
   try{
-    const response=await fetch('/telemetry/graph?all=1&spawn_only=1',{cache:'no-store'});
-    if(!response.ok)return false;   // a 502 is no graph: keep the lineage it would have wiped
+    const response=await fetch('/telemetry/graph?all=1&topology_only=1',{cache:'no-store'});
+    if(!response.ok)return false;
     const g=await response.json();
+    if(!g||g.error||g.degraded||!Array.isArray(g.spawn)||!Array.isArray(g.edges))return false;
+    const valid=edge=>edge&&typeof edge.source==='string'&&edge.source.trim()&&
+      typeof edge.target==='string'&&edge.target.trim();
+    if(!g.spawn.every(valid)||!g.edges.every(valid))return false;
     const parent=new Map();
-    (g.spawn||[]).forEach(s=>{if(s.source&&s.target)parent.set(s.target,s.source);});
+    g.spawn.forEach(edge=>{if(edge.source!==edge.target)parent.set(edge.target,edge.source);});
+    const pairs=new Map();
+    g.edges.forEach(edge=>{
+      if(edge.source===edge.target)return;
+      const pair=[edge.source,edge.target].sort((a,b)=>a.localeCompare(b));
+      pairs.set(JSON.stringify(pair),{source:pair[0],target:pair[1]});
+    });
+    const edges=[...pairs.values()].sort((a,b)=>
+      a.source.localeCompare(b.source)||a.target.localeCompare(b.target));
+    const key=JSON.stringify([[...parent].sort(([a],[b])=>a.localeCompare(b)),edges]);
+    if(key===graphTopologyKey)return;
     lineageParent=parent;
-  }catch(e){return false;/* keep last lineage */}
+    communicationEdges=edges;
+    graphTopologyKey=key;
+    assignLineageHues(currentAgents);
+    document.dispatchEvent(new CustomEvent('oc:graph'));
+  }catch(e){return false;/* keep the last successful topology */}
 }
 function assignLineageHues(live){
   const roots=[...new Set(live.map(a=>rootOf(a.name)))].sort();
@@ -9685,6 +9698,7 @@ window.OC=Object.freeze({
   renderPeerAvatar:(name,existing)=>currentAgentNamed(name)?conversationAvatar(name,'',existing):null,
   lineageHue,                       // Map: agent name -> lineage hex
   get lineageParent(){return lineageParent;},  // Map: child -> parent
+  get communicationEdges(){return communicationEdges;},
   agents:()=>currentAgents,
   activeAgent:()=>activeSession(),
   miniView:()=>({mode:miniViewMode,depth:miniNetworkDepth}),

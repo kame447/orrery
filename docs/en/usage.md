@@ -460,13 +460,15 @@ Color is used for lineage, and running state is expressed by motion. A `?` at th
 Open the overlay with `PLANETARIUM` in the header, or `⤢` at the top right of the mini-orrery.
 
 - The spawn forest
-- Live mail of the last 90 seconds
+- Recorded communication links and live mail of the last 90 seconds
 - Agent jump
 - `OPEN TELEMETRY`
 
 ![Planetarium. Spawn lines extend from the parent LuckyGoodall to the children BraveTuring and GreenMaxwell, and LimeGalileo, which has no parent, sits as a separate tree](../images/cockpit_planetarium.png)
 
 ![Opening the tree in PLANETARIUM; lines light up each time Mail arrives. Clicking a node jumps to its terminal](../images/cockpit_planetarium.gif)
+
+Visible agents are grouped by spawn and communication connectivity. Communication peers retain their links without being treated as parents or children. The 90-second window controls activity emphasis, not the lifetime of a connection. The mini-orrery Telemetry network mode also follows recorded relationships for its one-to-three-hop selection.
 
 Clicking a node moves to that agent's terminal and closes the overlay. `Esc`, a click outside, or `⤢` at the top right also closes it. Even if you set the mini-orrery to the Telemetry network view in Settings, the Planetarium always draws the spawn forest. The Planetarium is a lineage exploration inside the cockpit. Its role differs from the full NETWORK / DIGEST REPLAY of the ORRERY Telemetry dashboard.
 

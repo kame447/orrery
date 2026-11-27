@@ -99,7 +99,7 @@ portrait alias は provider tier や subscription を表しません。agent の
 
 ## Mini-orrery と Planetarium
 
-spawn forest を topology、最近の mail を一時的な edge / comet として表示します。
+spawn forest と記録済みの通信関係を topology として表示し、表示中の agent を接続グループごとに配置します。通信だけで結ばれた agent を親子には変えません。接続線は通信が止まっても残り、直近90秒の mail を線の強調と comet で表します。
 
 - node color は lineage
 - node motion は state
