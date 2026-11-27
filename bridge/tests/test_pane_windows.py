@@ -292,6 +292,13 @@ def test_the_app_grants_pane_windows_the_cockpit_capability_and_commands():
     assert '"orrery://pane-window-closed"' in lib
 
 
+@pytest.mark.parametrize("command", ["open_pane_window", "open_tour_window"])
+def test_native_window_builders_are_async_tauri_commands(command):
+    # WebView2 can deadlock when a window is built by a synchronous Tauri command.
+    lib = (APP / "src" / "lib.rs").read_text(encoding="utf-8")
+    assert re.search(r"(?m)^#\[tauri::command\]\s+async fn " + command + r"\(", lib)
+
+
 def test_late_pane_events_for_a_session_that_is_out_are_dropped():
     """Popping out detaches the session, but a resync the backend queued before
     the detach recreated the pane under the window (seen 2026-09-29)."""
