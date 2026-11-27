@@ -155,3 +155,59 @@ def test_mail_activity_expires_but_dom_links_and_positions_remain(mini_browser):
             assert old["life"] == 1 and old["opacity"] > new["opacity"] > 0
             assert new["life"] == 0
         assert after["collisions"] == after["outside"] == []
+
+
+# The fork fits the mini graph to the available rail width; six trees force
+# a real wrap and shrink even on that wider viewport. Keep the shrink assertion.
+@pytest.mark.parametrize("selector,tree_count", [("#orrery", 6), (".planetarium-svg", 12)])
+def test_component_merge_keeps_nodes_inside_shrinking_viewport_during_motion(mini_browser, selector, tree_count):
+    client, evaluate = mini_browser
+    pairs = [[f"A{i:02}Root", f"A{i:02}Child"] for i in range(tree_count - 1)]
+    pairs.append(["Pilot", "Helper"])
+    client.call("Emulation.setEmulatedMedia", features=[
+        {"name": "prefers-reduced-motion", "value": "reduce"}])
+    before = evaluate("""(()=>{
+      const pairs=PAIRS,names=pairs.flat();
+      currentAgents=names.map(name=>({name,category:'agent',running:true,
+        act_state:'work',provider:'openai',model:'Fixture model'}));
+      OC.lineageParent.clear();
+      pairs.forEach(([parent,child])=>OC.lineageParent.set(child,parent));
+      communicationEdges=[];
+      document.dispatchEvent(new CustomEvent('oc:agents',{detail:{agents:currentAgents}}));
+      focusSession('Helper');
+      if(SELECTOR!== '#orrery')OrreryRail.openPlanetarium();
+      const view=document.querySelector(SELECTOR).viewBox.baseVal;
+      return {width:view.width,height:view.height};
+    })()""".replace("PAIRS", json.dumps(pairs)).replace("SELECTOR", json.dumps(selector)))
+    client.call("Emulation.setEmulatedMedia", features=[
+        {"name": "prefers-reduced-motion", "value": "no-preference"}])
+    result = evaluate("""(async()=>{
+      const read=READ_GRAPH,pairs=PAIRS,selector=SELECTOR;
+      const capture=()=>{
+        const view=document.querySelector(selector).viewBox.baseVal;
+        return {...read(selector),width:view.width,height:view.height};
+      };
+      communicationEdges=pairs.slice(1).map((pair,index)=>({
+        source:pairs[index][1],target:pair[1]}));
+      document.dispatchEvent(new CustomEvent('oc:graph'));
+      const frames=[capture()];
+      for(let i=0;i<2;i++){
+        await new Promise(requestAnimationFrame);
+        frames.push(capture());
+      }
+      communicationEdges=[];
+      document.dispatchEvent(new CustomEvent('oc:graph'));
+      return {frames,expanded:capture(),active:OC.activeAgent(),
+        reduced:matchMedia('(prefers-reduced-motion: reduce)').matches};
+    })()""".replace("READ_GRAPH", READ_GRAPH).replace("PAIRS", json.dumps(pairs))
+             .replace("SELECTOR", json.dumps(selector)))
+    assert not result["reduced"]
+    assert result["active"] == "Helper"
+    for frame in result["frames"]:
+        assert frame["height"] < before["height"]
+        assert frame["count"] == tree_count * 2
+        assert frame["outside"] == []
+        assert frame["collisions"] == []
+        assert frame["selected"] == (["Helper"] if selector == "#orrery" else [])
+    assert result["expanded"]["height"] == before["height"]
+    assert any(node["transform"] for node in result["expanded"]["positions"])

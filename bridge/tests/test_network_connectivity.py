@@ -25,7 +25,7 @@ HARNESS = r"""
 let clock=1800000000000;
 const RealDate=Date;
 Date=class extends RealDate{static now(){return clock;}};
-let lineageParent=new Map(),communicationEdges=[],graphTopologyKey='';
+let lineageParent=new Map(),communicationEdges=[],graphTopologyKey='',graphTopologyRetryAt=0;
 let currentAgents=[],liveAgents=[],miniPositions=new Map(),planetPositions=new Map();
 const commPairs=new Map(),observedConnections=new Map();
 let commRefreshTimer=null,planetarium=null,planetSvg=null,planetMotion=null;

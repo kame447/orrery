@@ -362,7 +362,10 @@ function newNodeStart(name,target,dimensions){
   };
 }
 function prepareMotion(surface,layout,viewportChanged=false){
-  const instant=viewportChanged||!surface.initialized||motionIsReduced();
+  const previous=surface.layoutDimensions;
+  // Old coordinates can be outside a smaller viewBox before the next frame.
+  const shrinks=previous&&(layout.width<previous.width||layout.height<previous.height);
+  const instant=viewportChanged||!surface.initialized||motionIsReduced()||shrinks;
   surface.layoutDimensions={
     ...surface.dimensions,width:layout.width,height:layout.height,
   };
