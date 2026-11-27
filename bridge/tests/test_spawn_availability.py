@@ -3,6 +3,8 @@ import json
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from test_cockpit_tour import tour_browser  # noqa: F401
 
 BRIDGE = Path(__file__).resolve().parents[1]
@@ -45,9 +47,125 @@ def test_unavailable_harness_explains_preparation_and_recovers_when_ready(tour_b
         staleHelp:!spawnHarnessHelp.hidden};
     })()''')
     assert result['blocked']['disabled']
-    assert 'Install or repair this harness' in result['blocked']['reason']
+    assert 'Install or repair dsh' in result['blocked']['reason']
     assert result['blocked']['link'].endswith('/docs/native-setup.en.md')
     assert result['blocked']['linkVisible'] and result['blocked']['harnessHidden']
-    assert result['blocked']['status'] == 'Install or repair this harness. Open model settings for setup.'
+    assert result['blocked']['status'] == 'Install or repair dsh. Open model settings for setup.'
     assert result['ready'] and result['status'] == ''
     assert not result['staleHelp']
+
+
+@pytest.mark.parametrize(('provider', 'harness', 'name', 'guide'), [
+    ('claude', 'claude-code', 'Claude Code CLI', 'https://code.claude.com/docs/en/setup'),
+    ('codex', 'codex-cli', 'Codex CLI', 'https://github.com/openai/codex'),
+    ('gemini', 'antigravity', 'Antigravity CLI (agy)', 'https://github.com/kame447/orrery-telemetry/blob/master/docs/antigravity.en.md'),
+    ('deepseek', 'hermes', 'Hermes', 'https://github.com/kame447/orrery-telemetry/blob/master/docs/native-setup.en.md'),
+])
+def test_missing_cli_uses_setup_guide_and_keeps_draft(tour_browser, provider, harness, name, guide):
+    _, evaluate = tour_browser
+    choice = json.dumps({'id': provider, 'models': [{'id': 'fixture'}],
+                         'harnesses': [{'id': harness, 'available': True}]})
+    result = evaluate('''(()=> {
+      spawnCatalog={providers:[CHOICE],naming:{},dirs:[]};
+      selFamily=null;selModel=null;selHarness=null;selProvider=null;selUrlIndex=null;selUrlKey=null;selEffort=null;spawnChooseAgain=false;spawnProblem='';
+      spawnTask.value='Keep this draft';renderProviderTabs();
+      const ready=!spawnSubmit.disabled;
+      const offered=spawnCatalog.providers[0].harnesses[0];
+      Object.assign(offered,{available:false,reason:'runtime_not_prepared'});
+      renderProviderTabs(true);
+      const missing={disabled:spawnSubmit.disabled,notice:spawnStatus.textContent,link:spawnHarnessHelp.href,
+        visible:!spawnHarnessHelp.hidden,sheet:!spawnHarnessNotice.hidden&&spawnHarnessNotice.textContent,
+        model:selModel,draft:spawnTask.value};
+      offered.available=true;
+      renderProviderTabs(true);
+      return {ready,missing,recovered:!spawnSubmit.disabled&&!spawnStatus.textContent&&spawnHarnessHelp.hidden};
+    })()'''.replace('CHOICE', choice))
+    assert result['ready'] and result['recovered']
+    assert result['missing'] == {
+        'disabled': True, 'notice': f'Install or repair {name}. Open model settings for setup.',
+        'link': guide,
+        'visible': True, 'sheet': f'Install or repair {name}', 'model': 'fixture', 'draft': 'Keep this draft',
+    }
+
+
+def test_local_discovery_without_a_runtime_links_to_harness_setup(tour_browser):
+    _, evaluate = tour_browser
+    result = evaluate('''(()=> {
+      spawnCatalog={providers:[{id:'local-fixture',locality:'local',dynamic_models:true,
+        model_error:'runtime_not_prepared',models:[]}],naming:{},dirs:[]};
+      selFamily='local';selProvider=null;selModel=null;selUrlIndex=null;selHarness=null;
+      spawnChooseAgain=false;spawnProblem='';spawnTask.value='Fixture';
+      renderProviderTabs();
+      return {disabled:spawnSubmit.disabled,notice:spawnHarnessNotice.textContent,
+        link:!spawnHarnessHelp.hidden&&spawnHarnessHelp.href};
+    })()''')
+    assert result['disabled']
+    assert result['notice'] == 'Install or repair dsh or Hermes'
+    assert result['link'].endswith('/docs/native-setup.en.md')
+
+
+def test_runtime_loss_never_restores_disabled_tools_or_switches_harness(tour_browser):
+    _, evaluate = tour_browser
+    result = evaluate('''(()=>{
+      const dsh={id:'dsh',available:true,default:true},hermes={id:'hermes',available:true};
+      spawnCatalog={providers:[{id:'deepseek',models:[{id:'fixture'}],harnesses:[dsh,hermes]}],naming:{},dirs:[]};
+      selFamily='deepseek';selProvider=null;selModel=null;selHarness=null;selUrlIndex=null;selUrlKey=null;
+      spawnChooseAgain=false;spawnProblem='';spawnTask.value='Keep this draft';renderProviderTabs();
+      spawnHarnesses.querySelector('[data-harness="hermes"]').click();
+      spawnComputerUse.setAttribute('aria-checked','false');
+      spawnBrowserUse.setAttribute('aria-checked','false');
+      const state=()=>({harness:selHarness,model:selModel,disabled:spawnSubmit.disabled,
+        tools:spawnToolSwitches.map(c=>c.getAttribute('aria-checked')),draft:spawnTask.value});
+      const initial=state();
+      for(const h of [dsh,hermes])Object.assign(h,{available:false,reason:'runtime_not_prepared'});
+      renderProviderTabs(true);const blocked=state();
+      hermes.available=true;renderProviderTabs(true);const recovered=state();
+      hermes.available=false;renderProviderTabs(true);
+      dsh.available=true;renderProviderTabs(true);
+      return {initial,blocked,recovered,alternative:state(),chooseAgain:spawnChooseAgain};
+    })()''')
+    assert result['initial'] == result['recovered'] == {
+        'harness': 'hermes', 'model': 'fixture', 'disabled': False,
+        'tools': ['false', 'false'], 'draft': 'Keep this draft'}
+    assert result['blocked'] == {**result['initial'], 'disabled': True}
+    assert result['alternative']['disabled'] and result['chooseAgain']
+    assert result['alternative']['draft'] == 'Keep this draft'
+
+
+def test_setup_links_are_fixed_and_unknown_harness_has_no_link():
+    result = node('''console.log(JSON.stringify([
+      picker.setupGuide({id:'constructor',url:'https://example.com'}),
+      picker.setupGuide({id:'custom',url:'https://example.com'}),
+      picker.setupGuide({id:'agy',url:'https://example.com'})
+    ]));''')
+    assert result == [None, None, {
+        'label': 'Antigravity CLI (agy) setup',
+        'url': 'https://github.com/kame447/orrery-telemetry/blob/master/docs/antigravity.en.md'}]
+
+
+def test_antigravity_runtime_loss_preserves_explicit_effort(tour_browser):
+    _, evaluate = tour_browser
+    result = evaluate('''(()=>{
+      const model='gemini-4-hydrogen-xhigh';
+      const h={id:'antigravity',available:true};
+      spawnCatalog={providers:[{id:'gemini',program:'antigravity',
+        capabilities:{effort_required:true},models:[{id:model}],
+        efforts:['low','high','xhigh'],model_efforts:{[model]:['low','high','xhigh']},
+        harnesses:[h]}],naming:{},dirs:[]};
+      selFamily='gemini';selProvider=null;selModel=null;selUrlIndex=null;selUrlKey=null;
+      selHarness=null;selEffort=null;spawnChooseAgain=false;spawnTask.value='Keep effort';renderProviderTabs();
+      const before=spawnSubmit.disabled;
+      selEffort='xhigh';renderHarnesses();
+      const state=()=>({disabled:spawnSubmit.disabled,model:selModel,effort:spawnPayloadFromForm().effort,
+        draft:spawnTask.value,harness:selHarness});
+      const ready=state();
+      Object.assign(h,{available:false,reason:'runtime_not_prepared'});renderProviderTabs(true);
+      const blocked=state();
+      h.available=true;renderProviderTabs(true);
+      return {before,ready,blocked,recovered:state()};
+    })()''')
+    assert result['before']
+    assert result['ready'] == result['recovered'] == {
+        'disabled': False, 'model': 'gemini-4-hydrogen-xhigh', 'effort': 'xhigh',
+        'draft': 'Keep effort', 'harness': 'antigravity'}
+    assert result['blocked'] == {**result['ready'], 'disabled': True}
