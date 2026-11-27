@@ -8703,6 +8703,7 @@ const lineageHue=new Map();        // agent name -> hex (by spawn root)
 let lineageParent=new Map();       // child -> parent (spawn edge)
 let communicationEdges=[];
 let graphTopologyKey='';
+let graphTopologyRetryAt=0;
 function rootOf(n){let cur=n,g=0;const seen=new Set();
   while(lineageParent.has(cur)&&!seen.has(cur)&&g++<128){seen.add(cur);cur=lineageParent.get(cur);}return cur;}
 // strip the leading activity glyph from a pane title: whitespace + Braille
@@ -9653,7 +9654,17 @@ async function pollGraph(){
   if(graphTopologyKey&&
      (document.hidden||networkOverlay.classList.contains('on')))return;
   try{
-    const response=await fetch('/telemetry/graph?all=1&topology_only=1',{cache:'no-store'});
+    const projection=Date.now()>=graphTopologyRetryAt;
+    let response=await fetch(projection?'/telemetry/graph?all=1&topology_only=1':
+      '/telemetry/graph?all=1',{cache:'no-store'});
+    if(projection&&response.status===400){
+      const failure=await response.json();
+      if(!failure||failure.error!=='invalid_mail_query')return false;
+      // Older fresh dashboards reject the projection. Retry it after an upgrade,
+      // without sending the same rejected request on every six-second poll.
+      graphTopologyRetryAt=Date.now()+60000;
+      response=await fetch('/telemetry/graph?all=1',{cache:'no-store'});
+    }
     if(!response.ok)return false;
     const g=await response.json();
     if(!g||g.error||g.degraded||!Array.isArray(g.spawn)||!Array.isArray(g.edges))return false;
