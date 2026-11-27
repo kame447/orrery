@@ -232,7 +232,7 @@ roster の tile に mouse を乗せると、名前をコピーする icon が出
 
 ### 親子関係と通信を見渡す（Planetarium）
 
-header の `PLANETARIUM` で、誰が誰を起動したかの木を画面いっぱいに開きます。直近 90 秒に Mail が行き来した二者の間には線が光り、Mail が届くたびに彗星が飛ぶので、チームのどこで会話が起きているかが一目で分かります。node をクリックすると、その agent のターミナルへそのまま移ります。
+header の `PLANETARIUM` で、誰が誰を起動したかの木を画面いっぱいに開きます。表示中の agent を親子関係と記録済みの通信関係でまとめ、通信が止まっても接続線は残します。直近 90 秒に Mail が行き来した二者の間には線が光り、Mail が届くたびに彗星が飛ぶので、チームのどこで会話が起きているかが一目で分かります。node をクリックすると、その agent のターミナルへそのまま移ります。
 
 ![PLANETARIUM を押すと、CoralCurie を親に6体の子が並ぶ木が開き、Mail が届くたびに線が光る。JadeNoether の node をクリックすると、そのターミナルに移る](docs/images/cockpit_planetarium.gif)
 

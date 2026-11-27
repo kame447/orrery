@@ -103,7 +103,7 @@ A portrait alias does not indicate a provider tier or subscription. Do not infer
 
 ## Mini-orrery and Planetarium
 
-The spawn forest is shown as the topology, and recent mail as temporary edges / comets.
+The spawn forest and recorded communication links form the topology, grouping visible agents by connectivity. Communication does not turn a peer into a child. Links remain when traffic pauses; mail in the last 90 seconds adds emphasis and comets.
 
 - Node color is lineage
 - Node motion is state

@@ -462,13 +462,15 @@ mini-orrery は live agent の spawn forest と、直近90秒の mail edge / com
 header の `PLANETARIUM`、または mini-orrery 右上の `⤢` で overlay を開きます。
 
 - spawn forest
-- 直近90秒の live mail
+- 記録済みの通信関係と、直近90秒の live mail
 - agent jump
 - `OPEN TELEMETRY`
 
 ![Planetarium。親の LuckyGoodall から子の BraveTuring と GreenMaxwell へ spawn の線が伸び、親を持たない LimeGalileo は別の木として並ぶ](images/cockpit_planetarium.png)
 
 ![PLANETARIUM で木を開き、Mail が届くたびに線が光る。node をクリックするとそのターミナルへ移る](images/cockpit_planetarium.gif)
+
+表示中の agent は親子関係と通信関係で接続グループにまとめます。親子関係がない通信相手にも接続線を残し、親や子として扱うことはありません。90秒は通信の強調表示の期間であり、接続自体の有効期限ではありません。mini-orrery の Telemetry network mode でも、記録済みの関係を1〜3 hopたどります。
 
 node をクリックすると、その agent の terminal へ移り、overlay を閉じます。`Esc`、外側の click、または右上の `⤢` でも閉じます。mini-orrery を Settings で Telemetry network 表示にしていても、Planetarium は常に spawn forest を描きます。Planetarium は cockpit 内の系譜探索です。ORRERY Telemetry dashboard の full NETWORK / DIGEST REPLAY とは役割が異なります。
 
