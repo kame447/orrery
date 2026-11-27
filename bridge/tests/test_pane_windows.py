@@ -377,7 +377,7 @@ def test_another_sessions_reset_does_not_fill_a_selected_outside_sessions_stage(
     script = r"""
 let activeId=null,pendingJump=null,splitVisible=false,focusedSplitSession=null;
 let paneWindowSelection='WindowAgent';
-const requestedSessions=new Set(),attachedSessions=new Set();
+const requestedSessions=new Set(),attachedSessions=new Set(),closedByBackend=new Set();
 const focused=[];
 function activeSession(){return null;}
 function closeSessionPanes(){}
@@ -422,7 +422,7 @@ let activeId=null,pendingJump=null,splitVisible=false,focusedSplitSession=null;
 let paneWindowSelection='WindowAgent';
 const paneWindows=new Map([['WindowAgent',{}],['OtherWindow',{}]]);
 const availableSessions=new Set(['MainAgent']),manualDetached=new Set();
-const requestedSessions=new Set(),attachedSessions=new Set();
+const requestedSessions=new Set(),attachedSessions=new Set(),closedByBackend=new Set();
 const stageEmpty={style:{display:'none'}},focused=[];
 const panes=new Map(),sessionGroups=new Map(),splitSessions=[];
 const paneCountEl=null,sessChip=null,tabsEmpty={style:{}};

@@ -137,10 +137,20 @@ def test_a_return_that_could_not_attach_is_tried_again(tour_browser):  # noqa: F
     evaluate("window.send=m=>{window.__sent.push(m);return true;}")
     evaluate(BACK % "['A','B','C']")
     after = evaluate(STATE)
+    pending = evaluate("({noted:closedByBackend.has('B'),requested:requestedSessions.has('B')})")
+    # While a request is pending, a roster must not issue a duplicate attach.
+    evaluate(BACK % "['A','B','C']")
+    duplicate = evaluate(STATE)['attachB']
+    # If the backend rejects the attach, the next roster retries it.
+    evaluate("handle({type:'error',session:'B',message:'TMUX_SOCKET_CHANGED'})")
+    evaluate(BACK % "['A','B','C']")
+    retried = evaluate(STATE)['attachB']
+    evaluate("handle({type:'reset',session:'B',incarnation:'new',panes:[]})")
     noted_after = evaluate("closedByBackend.has('B')")
     evaluate(CLEANUP)
     assert first == {'noted': True, 'requested': False}, first
-    assert after['attachB'] and noted_after is False, after
+    assert after['attachB'] and pending == {'noted': True, 'requested': True}, (after, pending)
+    assert not duplicate and retried and noted_after is False
 
 
 def test_a_slot_freed_by_the_same_list_is_there_for_the_return(tour_browser):  # noqa: F811
