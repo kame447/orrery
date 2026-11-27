@@ -121,6 +121,14 @@ cockpit の動きが出ないときは、ブラウザーを動かしている OS
 
 動きを表示したい場合だけ設定を変え、ブラウザーで cockpit を読み直します。動きを減らす設定が必要な場合は、そのまま利用できます。
 
+## 起動時に `ORRERY instruction migration: N notices` と出る
+
+Claude や Codex の指示ファイルにある ORRERY 管理ブロックについての知らせです。`agentstack-doctor` で対象の path と理由を確認します。非対話 shell の installer では、事前承認のない managed setup が見送られることがあります。
+
+管理ブロックが古い場合は、知らせや doctor が案内した利用者・HOME・対象 path のまま `agentstack-claude-setup` または `agentstack-codex-setup` の `--plan` で計画を確認します。既存ファイルの変更には正規の承認が必要です。変更時は元の全文の backup を保持します。詳細は [Telemetry の指示移行ガイド](https://github.com/kame447/orrery-telemetry/blob/0685370fc2acebf9ebac8ea140f2dc94410d9de7/docs/instruction-migration.md#consent) を参照してください。
+
+`INSTRUCTION_PATH_UNSAFE` の場合は、所有者、group / other の書込権限、symlink の解決先などを確認します。この fork は Windows drive (DrvFs) の合成権限も自動で例外扱いしません。権限チェックを迂回せず、既存の指示と backup を保全してください。知らせだけで Mail の切替や project key の変更を行う必要はありません。
+
 ## mail が表示されない
 
 legacy mode で `scripts/start-cockpit.sh` を使う場合は、`ORRERY_MAIL_DB`、shell の `AGENTSTACK_MAIL_DB`、Telemetry の `env.sh` の順で DB を選びます。backend を直接起動する場合は `ORRERY_MAIL_DB` または共有設定の `mail_db` を明示します。[DB の優先順位](configuration.md#orrery-mail-db) を参照してください。fresh mode では保護された dashboard API を使い、legacy DB には fallback しません。以下の DB 確認は legacy mode が対象です。
