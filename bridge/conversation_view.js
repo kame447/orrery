@@ -602,9 +602,11 @@
         const event=events.get(row.dataset.eventId);
         if(event&&stepRows.has(event.id)){
           finish();row.classList.add('conversation-step-record');
+          row.classList.toggle('conversation-step-files',
+            row.matches(':has(> .conversation-byline:first-child + .conversation-files:last-child)'));
           row.hidden=!row.querySelector('.conversation-files,.conversation-diff,.conversation-mail');continue;
         }
-        row.classList.remove('conversation-step-record');
+        row.classList.remove('conversation-step-record','conversation-step-files');
         if(event&&['tool','tool_result'].includes(event.kind)&&!event.mail?.length)run.push(row);
         else{finish();row.hidden=false;}
       }
@@ -634,6 +636,11 @@
       }
       if(focused&&(document.activeElement===document.body||document.activeElement===scroll))(groups.includes(focused)?focused.button:scroll).focus({preventScroll:true});
       preview?.syncInline(rawRows(),events);
+      for(const heading of eventsEl.querySelectorAll(':scope > .conversation-steps')){
+        let next=heading.nextElementSibling;
+        while(next?.hidden)next=next.nextElementSibling;
+        heading.classList.toggle('conversation-steps-with-files',!!next?.classList.contains('conversation-step-files'));
+      }
       paintActivity();
     }
     function anchor(){
