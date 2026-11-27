@@ -1,10 +1,11 @@
 /* ── orrery view: real spawn + communication graph (rail + planetarium) ──
    Owns <svg id="orrery"> and its full-stage planetarium.
    Inputs (read-only):
-     window.OC — { jumpToAgent, lineageHue, lineageParent, agents(),
+     window.OC — { jumpToAgent, lineageHue, lineageParent, communicationEdges, agents(),
                    mailBacklog() }
      document events:
        'oc:agents'  detail:{agents}    — every roster poll tick (~3s)
+       'oc:graph'                     — changed spawn/communication topology
        'oc:mail'    detail:{messages}  — NEW mail since last tick (deduped)
    Colour stays reserved for spawn lineage; state/events use motion. */
 (function(){
@@ -18,7 +19,7 @@ const MINI={
   width:280,height:200,large:false,
   xPadding:34,topPadding:46,bottomPadding:46,
   treePitchX:66,treePitchY:64,singlePitchX:66,singlePitchY:64,
-  singleColumns:5,sectionGap:64,treeGapUnits:.55,promoteComms:true,
+  singleColumns:5,sectionGap:64,treeGapUnits:.55,
   captionWidth:62,captionTop:15,captionHeight:20,nodeAbove:20,
 };
 const MINI_HEIGHT_KEY='oc-mini-graph-height';
@@ -29,11 +30,10 @@ const PLANET={
   width:1000,height:620,large:true,
   xPadding:64,topPadding:90,bottomPadding:80,
   treePitchX:112,treePitchY:122,singlePitchX:112,singlePitchY:122,
-  singleColumns:8,sectionGap:128,treeGapUnits:.55,promoteComms:false,
+  singleColumns:8,sectionGap:128,treeGapUnits:.55,
   captionWidth:104,captionTop:37,captionHeight:34,nodeAbove:37,
 };
 const MAIL_EDGE_LIFETIME=90000;
-const COMM_PROMOTION_HYSTERESIS=4000;
 const MAX_COMETS=6;
 const MOTION_STIFFNESS=150;
 const MOTION_DAMPING=22;
@@ -51,6 +51,7 @@ let planetLastFocus=null;
 let activeComets=0;
 let activeMailRoute=null;
 const commPairs=new Map();
+const observedConnections=new Map();
 let commRefreshTimer=null;
 let motionFrameId=null;
 let motionLastTime=null;
@@ -150,177 +151,127 @@ function buildForest(live){
   };
 }
 
-function activePromotionPartners(forest,now=Date.now()){
-  if(!forest||!forest.singletons.length)return new Map();
-  const constellation=new Set();
-  forest.byName.forEach((agent,name)=>{
-    if(forest.parentOf.has(name)||(forest.children.get(name)||[]).length){
-      constellation.add(name);
-    }
+function communicationPairs(){
+  const pairs=new Map();
+  (OC.communicationEdges||[]).forEach(edge=>{
+    if(!edge||typeof edge.source!=='string'||typeof edge.target!=='string'||
+       !edge.source||!edge.target||edge.source===edge.target)return;
+    pairs.set(pairKey(edge.source,edge.target),{a:edge.source,b:edge.target});
   });
-  if(!constellation.size)return new Map();
-  const singletons=new Set(forest.singletons);
-  const strongest=new Map();
-  commPairs.forEach(pair=>{
-    if(now-pair.ts>=MAIL_EDGE_LIFETIME+COMM_PROMOTION_HYSTERESIS)return;
-    let singleton=null,partner=null;
-    if(singletons.has(pair.a)&&constellation.has(pair.b)){
-      singleton=pair.a;partner=pair.b;
-    }else if(singletons.has(pair.b)&&constellation.has(pair.a)){
-      singleton=pair.b;partner=pair.a;
-    }
-    if(!singleton)return;
-    const previous=strongest.get(singleton);
-    if(!previous||pair.ts>previous.ts||
-       (pair.ts===previous.ts&&partner.localeCompare(previous.partner)<0)){
-      strongest.set(singleton,{partner,ts:pair.ts});
-    }
-  });
-  return new Map([...strongest].map(([name,value])=>[name,value.partner]));
+  // A graph request may have started before the latest delivered mail.
+  observedConnections.forEach((pair,key)=>pairs.set(key,pair));
+  return pairs;
 }
-
+function connectedComponents(forest){
+  const adjacent=new Map([...forest.byName.keys()].map(name=>[name,new Set()]));
+  const connect=(a,b)=>{
+    if(!adjacent.has(a)||!adjacent.has(b)||a===b)return;
+    adjacent.get(a).add(b);adjacent.get(b).add(a);
+  };
+  forest.parentOf.forEach((parent,child)=>connect(parent,child));
+  communicationPairs().forEach(pair=>connect(pair.a,pair.b));
+  const visited=new Set(),components=[];
+  [...adjacent.keys()].sort((a,b)=>a.localeCompare(b)).forEach(start=>{
+    if(visited.has(start))return;
+    const component=[],pending=[start];visited.add(start);
+    while(pending.length){
+      const name=pending.pop();component.push(name);
+      adjacent.get(name).forEach(other=>{
+        if(!visited.has(other)){visited.add(other);pending.push(other);}
+      });
+    }
+    components.push(component.sort((a,b)=>a.localeCompare(b)));
+  });
+  return components;
+}
 function captionClearance(dimensions){
   return [dimensions.captionWidth+4,dimensions.nodeAbove+dimensions.captionTop+dimensions.captionHeight+2];
 }
-function promotedPosition(name,partnerPosition,occupied,dimensions){
-  const [horizontal,vertical]=captionClearance(dimensions);
-  const angles=[0,Math.PI,-Math.PI/2,Math.PI/2,-Math.PI/4,Math.PI/4,
-    -3*Math.PI/4,3*Math.PI/4];
-  const seed=[...String(name)].reduce((sum,char)=>sum+char.codePointAt(0),0);
-  const ordered=angles.map((_,index)=>angles[(index+seed)%angles.length]);
-  let best=null;
-  for(const angle of ordered){
-    const x=partnerPosition.x+Math.cos(angle)*vertical;
-    const y=partnerPosition.y+Math.sin(angle)*vertical;
-    if(x<dimensions.xPadding||x>dimensions.width-dimensions.xPadding||
-       y<dimensions.topPadding||y>dimensions.height-dimensions.bottomPadding)continue;
-    let nearest=Infinity;
-    for(const [other,position] of occupied){
-      if(other===name)continue;
-      const clearance=Math.max(Math.abs(x-position.x)/horizontal,Math.abs(y-position.y)/vertical);
-      nearest=Math.min(nearest,clearance);
-    }
-    if(nearest>=1&&(!best||nearest>best.score))best={x,y,score:nearest};
-  }
-  return best;
+function packLayoutBlocks(blocks,maxWidth,gapX=0,gapY=0){
+  let x=0,y=0,rowHeight=0,width=0,height=0;
+  const positions=new Map();
+  blocks.forEach(block=>{
+    if(x&&x+block.width>maxWidth){y+=rowHeight+gapY;x=0;rowHeight=0;}
+    block.positions.forEach((position,name)=>positions.set(name,{
+      ...position,x:x+position.x,y:y+position.y,
+    }));
+    width=Math.max(width,x+block.width);
+    height=Math.max(height,y+block.height);
+    rowHeight=Math.max(rowHeight,block.height);
+    x+=block.width+gapX;
+  });
+  return {width,height,positions};
 }
 
-/* Keep each portrait and its caption in a separate cell. The SVG viewport
-   fits the resulting coordinate space on both surfaces. */
+/* Pack real spawn trees inside their communication component. A communication
+   link joins blocks, never invents a parent. Portrait/caption cells stay intact. */
 function layoutAgents(live,dimensions){
-  const forest=buildForest(live);
-  const promotionPartners=dimensions.promoteComms
-    ?activePromotionPartners(forest):new Map();
-  const promotions=new Map();
+  const forest=buildForest(live),components=connectedComponents(forest);
+  const innerWidth=dimensions.width-dimensions.xPadding*2;
   const spanCache=new Map();
   function treeSpan(name){
-    if(spanCache.has(name))return spanCache.get(name);
-    const children=forest.children.get(name);
-    const span=children.length
-      ?children.reduce((sum,child)=>sum+treeSpan(child),0):1;
-    spanCache.set(name,span);
-    return span;
+    if(!spanCache.has(name)){
+      const children=forest.children.get(name);
+      spanCache.set(name,children.length
+        ?children.reduce((sum,child)=>sum+treeSpan(child),0):1);
+    }
+    return spanCache.get(name);
   }
-
-  const rawTreePositions=new Map();
-  let maxDepth=0;
-  function placeTree(name,depth,start){
-    maxDepth=Math.max(maxDepth,depth);
-    const children=forest.children.get(name);
-    let unitX=start+.5;
-    if(children.length){
+  function treeBlock(root,component){
+    const positions=new Map();let maxDepth=0;
+    function place(name,depth,start){
+      maxDepth=Math.max(maxDepth,depth);
+      const children=forest.children.get(name),childXs=[];
       let cursor=start;
-      const childXs=[];
       children.forEach(child=>{
-        placeTree(child,depth+1,cursor);
-        childXs.push(rawTreePositions.get(child).unitX);
+        place(child,depth+1,cursor);
+        childXs.push(positions.get(child).x);
         cursor+=treeSpan(child);
       });
-      unitX=(childXs[0]+childXs[childXs.length-1])/2;
+      const x=children.length?(childXs[0]+childXs[childXs.length-1])/2:
+        (start+.5)*dimensions.treePitchX;
+      positions.set(name,{x,y:depth*dimensions.treePitchY,component});
     }
-    rawTreePositions.set(name,{unitX,depth});
+    place(root,0,0);
+    return {width:treeSpan(root)*dimensions.treePitchX,
+      height:(maxDepth+1)*dimensions.treePitchY,positions};
   }
-  let treeCursor=0;
-  forest.trees.forEach(root=>{
-    placeTree(root,0,treeCursor);
-    treeCursor+=treeSpan(root)+dimensions.treeGapUnits;
+  const connected=[],isolated=[];
+  components.forEach(component=>{
+    if(component.length===1){isolated.push(component[0]);return;}
+    const roots=component.filter(name=>!forest.parentOf.has(name)).sort((a,b)=>
+      Number(!forest.children.get(a).length)-Number(!forest.children.get(b).length)||a.localeCompare(b));
+    const blocks=roots.map(root=>treeBlock(root,component[0]));
+    connected.push(packLayoutBlocks(blocks,Math.max(innerWidth,...blocks.map(block=>block.width))));
   });
-
-  const rawXs=[...rawTreePositions.values()].map(item=>item.unitX);
-  const rawMin=rawXs.length?Math.min(...rawXs):0;
-  const rawMax=rawXs.length?Math.max(...rawXs):0;
-  const rawTreeWidth=rawMax-rawMin;
-  // Reserve every singleton's cell before selecting promotion destinations.
-  const singletonCount=forest.singletons.length;
-  const singletonColumns=singletonCount
-    ?Math.min(singletonCount,dimensions.singleColumns):0;
-  const singletonRows=singletonCount
-    ?Math.ceil(singletonCount/singletonColumns):0;
-  const desiredTreeWidth=rawTreeWidth*dimensions.treePitchX;
-  const desiredSingletonWidth=Math.max(
-    0,(singletonColumns-1)*dimensions.singlePitchX);
-  const desiredContentWidth=Math.max(desiredTreeWidth,desiredSingletonWidth);
-  const width=Math.max(dimensions.width,desiredContentWidth+dimensions.xPadding*2);
-  const treeLeft=(width-desiredTreeWidth)/2;
-  const singletonWidth=(singletonColumns-1)*dimensions.singlePitchX;
-  const singletonLeft=(width-singletonWidth)/2;
-
-  const idealTreeHeight=rawTreePositions.size
-    ?maxDepth*dimensions.treePitchY:0;
-  const idealSingletonHeight=singletonRows
-    ?(singletonRows-1)*dimensions.singlePitchY:0;
-  const idealGap=rawTreePositions.size&&singletonCount
-    ?dimensions.sectionGap:0;
-  const idealContentHeight=idealTreeHeight+idealGap+idealSingletonHeight;
-  const minimumHeight=idealContentHeight+dimensions.topPadding+dimensions.bottomPadding;
-  const height=Math.max(dimensions.height,minimumHeight);
-  const top=dimensions.topPadding+(height-minimumHeight)/2;
-  const singletonTop=top+idealTreeHeight+idealGap;
-
+  const blocks=connected.slice();
+  if(isolated.length){
+    blocks.push(packLayoutBlocks(isolated.map(name=>treeBlock(name,name)),
+      Math.min(isolated.length,dimensions.singleColumns)*dimensions.treePitchX));
+  }
+  const packed=packLayoutBlocks(blocks,Math.max(innerWidth,...blocks.map(block=>block.width)),
+    dimensions.treePitchX*dimensions.treeGapUnits,dimensions.sectionGap);
+  const raw=[...packed.positions.values()];
+  const minX=raw.length?Math.min(...raw.map(p=>p.x)):0;
+  const maxX=raw.length?Math.max(...raw.map(p=>p.x)):0;
+  const minY=raw.length?Math.min(...raw.map(p=>p.y)):0;
+  const maxY=raw.length?Math.max(...raw.map(p=>p.y)):0;
+  const width=Math.max(dimensions.width,maxX-minX+dimensions.xPadding*2);
+  const height=Math.max(dimensions.height,maxY-minY+dimensions.topPadding+dimensions.bottomPadding);
+  const left=(width-(maxX-minX))/2;
+  const top=dimensions.topPadding+(height-dimensions.topPadding-dimensions.bottomPadding-(maxY-minY))/2;
   const positions=new Map();
-  rawTreePositions.forEach((raw,name)=>{
+  packed.positions.forEach((position,name)=>{
     const agent=forest.byName.get(name);
-    positions.set(name,{
-      x:treeLeft+(raw.unitX-rawMin)*dimensions.treePitchX,
-      y:top+raw.depth*dimensions.treePitchY,
-      agent,
-      hue:OC.lineageHue.get(name)||'#7a8794',
-      working:agent.act_state==='work',
-    });
+    positions.set(name,{...position,x:left+position.x-minX,y:top+position.y-minY,
+      agent,hue:OC.lineageHue.get(name)||'#7a8794',working:agent.act_state==='work'});
   });
-  forest.singletons.forEach((name,index)=>{
-    const agent=forest.byName.get(name);
-    const column=index%singletonColumns;
-    const row=Math.floor(index/singletonColumns);
-    positions.set(name,{
-      x:singletonLeft+column*dimensions.singlePitchX,
-      y:singletonTop+row*dimensions.singlePitchY,
-      agent,
-      hue:OC.lineageHue.get(name)||'#7a8794',
-      working:agent.act_state==='work',
-    });
-  });
-  [...promotionPartners].sort(([a],[b])=>a.localeCompare(b))
-    .forEach(([name,partner])=>{
-      const partnerPosition=positions.get(partner);
-      if(!partnerPosition)return;
-      const target=promotedPosition(name,partnerPosition,positions,{
-        ...dimensions,width,height,
-      });
-      if(!target)return;
-      Object.assign(positions.get(name),{x:target.x,y:target.y,promoted:true,promotionPartner:partner});
-      promotions.set(name,partner);
-    });
-  return {
-    width,height,positions,parentOf:forest.parentOf,
-    trees:forest.trees,singletons:forest.singletons.filter(name=>!promotions.has(name)),promotions,
-  };
+  return {width,height,positions,parentOf:forest.parentOf,trees:forest.trees,
+    singletons:isolated,components};
 }
 
-/* The compact telemetry view is a bounded, undirected subgraph.  A hop is
-   one lineage or still-live mail edge; once selected, every internal edge is
-   retained by the normal spawn/mail layers below. */
-function telemetryNetworkSubset(live,focus,depth,now=Date.now()){
+/* A hop follows a known spawn or communication edge between live agents. */
+function telemetryNetworkSubset(live,focus,depth){
   const byName=new Map((live||[]).filter(agent=>agent&&agent.name)
     .map(agent=>[agent.name,agent]));
   if(!focus||!byName.has(focus))return null;
@@ -329,8 +280,8 @@ function telemetryNetworkSubset(live,focus,depth,now=Date.now()){
     if(!adjacent.has(parent)||!adjacent.has(child))return;
     adjacent.get(parent).add(child);adjacent.get(child).add(parent);
   });
-  commPairs.forEach(pair=>{
-    if(now-pair.ts>=MAIL_EDGE_LIFETIME||!adjacent.has(pair.a)||!adjacent.has(pair.b))return;
+  communicationPairs().forEach(pair=>{
+    if(!adjacent.has(pair.a)||!adjacent.has(pair.b))return;
     adjacent.get(pair.a).add(pair.b);adjacent.get(pair.b).add(pair.a);
   });
   const visible=new Set([focus]);
@@ -371,7 +322,7 @@ function telemetryMiniLayout(live,focus,depth,dimensions){
   const positions=new Map();
   const positionFor=(name,x,y,networkFocus=false)=>{
     const agent=subset.byName.get(name);
-    positions.set(name,{x,y,agent,hue:OC.lineageHue.get(name)||'#7a8794',
+    positions.set(name,{x,y,agent,component:focus,hue:OC.lineageHue.get(name)||'#7a8794',
       working:agent.act_state==='work',networkFocus});
   };
   offsets.forEach(({name,x,y})=>positionFor(name,centerX+x*scale,centerY+y*scale,name===focus));
@@ -379,14 +330,13 @@ function telemetryMiniLayout(live,focus,depth,dimensions){
   OC.lineageParent.forEach((parent,child)=>{
     if(positions.has(parent)&&positions.has(child))parentOf.set(child,parent);
   });
-  return {width,height,positions,parentOf,trees:[],singletons:[],
-    promotions:new Map(),networkFocus:focus};
+  return {width,height,positions,parentOf,trees:[],singletons:[],networkFocus:focus};
 }
 
 function createMotionSurface(target,dimensions){
   return {
     target,dimensions,states:new Map(),positions:new Map(),nodes:new Map(),
-    spawnEdges:[],initialized:false,active:false,settledFrames:0,
+    spawnEdges:[],spawnPairs:new Set(),initialized:false,active:false,settledFrames:0,
   };
 }
 const miniMotion=createMotionSurface(miniSvg,MINI);
@@ -416,6 +366,7 @@ function prepareMotion(surface,layout,viewportChanged=false){
   surface.layoutDimensions={
     ...surface.dimensions,width:layout.width,height:layout.height,
   };
+  surface.spawnPairs=new Set([...layout.parentOf].map(([child,parent])=>pairKey(parent,child)));
   const seen=new Set();
   layout.positions.forEach((target,name)=>{
     seen.add(name);
@@ -434,8 +385,8 @@ function prepareMotion(surface,layout,viewportChanged=false){
     state.baseX=target.x;state.baseY=target.y;
     state.agent=target.agent;state.hue=target.hue;
     state.working=target.working;
-    state.promoted=Boolean(target.promoted);
-    state.promotionPartner=target.promotionPartner||null;
+    state.component=target.component||null;
+    state.networkFocus=Boolean(target.networkFocus);
     state.targetOpacity=1;state.removing=false;
     if(instant){
       state.x=state.tx;state.y=state.ty;state.vx=0;state.vy=0;state.opacity=1;
@@ -486,7 +437,7 @@ function updateSurfaceGeometry(surface){
       edge.setAttribute('d',curve.d);
       const life=Number(edge.dataset.life||0);
       edge.setAttribute('stroke-opacity',
-        (.58*life*Math.min(from.opacity,to.opacity)).toFixed(3));
+        ((.2+.38*life)*Math.min(from.opacity,to.opacity)).toFixed(3));
     });
   }
   if(activeMailRoute)renderMailFocus(surface);
@@ -634,7 +585,7 @@ function drawMiniAgent(target,defs,position,index,dimensions){
   defs.appendChild(clip);
   const group=svgEl('g',{
     class:'orrery-agent mini-agent'+(working?' is-working':'')+(position.networkFocus?' is-network-focus':''),
-    'data-agent':agent.name,
+    'data-agent':agent.name,'data-component':position.component||agent.name,
   });
   makeInteractive(group,agent);
   group.appendChild(svgEl('circle',{class:'orrery-hit',cx:x,cy:y,r:14}));
@@ -688,7 +639,7 @@ function drawPlanetAgent(target,defs,position,index){
   defs.appendChild(clip);
   const group=svgEl('g',{
     class:'orrery-agent planet-agent'+(working?' is-working':''),
-    'data-agent':agent.name,
+    'data-agent':agent.name,'data-component':position.component||agent.name,
   });
   makeInteractive(group,agent);
   group.appendChild(svgEl('circle',{class:'orrery-hit',cx:x,cy:y,r:radius+8}));
@@ -910,18 +861,7 @@ function renderPlanetarium(){
   if(!planetSvg||!planetarium.classList.contains('on'))return;
   const flights=preservedFlights(planetSvg);
   planetSvg.replaceChildren();
-  /* The planetarium is the forest — its own subtitle says so, and the reason
-     to open it is to see who spawned whom. It used to follow the rail's view
-     mode, which meant that in "telemetry network" mode it drew a ring around
-     whichever agent was focused instead of the tree. With no focus yet, that
-     path fell through to the tree (telemetryMiniLayout returns layoutAgents
-     when the subset is empty), so a fresh window looked right and opening a
-     single pane silently replaced the overview with a one-agent ring — and
-     nothing put it back, because the focus never cleared.
-
-     The ring answers "who is this agent talking to", which is a rail-sized
-     question; the rail still asks it. Up here the answer wanted is the whole
-     hierarchy, so draw that and nothing else. */
+  // Keep the complete spawn forest; communication groups it without changing ancestry.
   const layout=layoutAgents(liveAgents,PLANET);
   prepareMotion(planetMotion,layout);
   planetSvg.setAttribute('viewBox',`0 0 ${layout.width} ${layout.height}`);
@@ -968,7 +908,7 @@ function ensurePlanetarium(){
   title.textContent='Planetarium';
   const note=document.createElement('div');
   note.className='planetarium-note';
-  note.textContent='SPAWN FOREST · LIVE MAIL (90 S)';
+  note.textContent='SPAWN + MAIL LINKS · ACTIVITY (90 S)';
   const telemetry=document.createElement('button');
   telemetry.className='planetarium-telemetry';telemetry.type='button';
   telemetry.textContent='OPEN TELEMETRY ↗';
@@ -1014,7 +954,7 @@ function closePlanetarium(){
   if(planetMotion){
     planetMotion.active=false;planetMotion.initialized=false;
     planetMotion.states.clear();planetMotion.positions.clear();
-    planetMotion.nodes.clear();planetMotion.spawnEdges=[];
+    planetMotion.nodes.clear();planetMotion.spawnEdges=[];planetMotion.spawnPairs.clear();
   }
   syncMotionLoop();
   const restoreTarget=planetLastFocus&&planetLastFocus.isConnected&&
@@ -1061,17 +1001,21 @@ function pairKey(a,b){
 }
 function recordMessages(messages,serverNowMs=null){
   const now=Date.now();
+  const liveNames=new Set(liveAgents.map(agent=>agent.name));
   (messages||[]).forEach(message=>{
     const from=senderName(message);
     if(!from)return;
     const sentAt=observedMailTime(message,serverNowMs);
-    if(now-sentAt>=MAIL_EDGE_LIFETIME)return;
     recipientNames(message).forEach(to=>{
       if(!to||to===from)return;
       const key=pairKey(from,to);
+      const ordered=from.localeCompare(to)<=0?[from,to]:[to,from];
+      const existing=observedConnections.get(key);
+      observedConnections.set(key,{a:ordered[0],b:ordered[1],observedAt:now,
+        confirmed:Boolean(existing?.confirmed)||(liveNames.has(from)&&liveNames.has(to))});
+      if(now-sentAt>=MAIL_EDGE_LIFETIME)return;
       const previous=commPairs.get(key);
       if(!previous||sentAt>previous.ts){
-        const ordered=from.localeCompare(to)<=0?[from,to]:[to,from];
         commPairs.set(key,{a:ordered[0],b:ordered[1],ts:sentAt});
       }
     });
@@ -1087,14 +1031,14 @@ function segmentNearNode(from,to,node,radius){
   const t=Math.max(0,Math.min(1,(x*dx+y*dy)/(dx*dx+dy*dy||1)));
   return (x-dx*t)**2+(y-dy*t)**2<=radius*radius;
 }
-function commPathBetween(from,to,positions,dimensions){
+function commPathBetween(from,to,positions,dimensions,spawnPairs){
   const dx=to.x-from.x,dy=to.y-from.y;
   const straight={
     d:`M ${from.x} ${from.y} L ${to.x} ${to.y}`,
     point:t=>({x:from.x+dx*t,y:from.y+dy*t}),
   };
   const distance=Math.hypot(dx,dy);
-  if(!distance||isLineagePair(from.name,to.name))return straight;
+  if(!distance||(spawnPairs&&isLineagePair(from.name,to.name,spawnPairs)))return straight;
   // Clear the portrait's outer ring, with room for the edge stroke.
   const radius=dimensions.large?32:14;
   const nodes=[...positions.values()].filter(node=>node!==from&&node!==to);
@@ -1149,7 +1093,7 @@ function renderMailFocus(surface){
   for(const name of activeMailRoute.recipients||[]){
     const to=surface.states.get(name);
     if(!to||to.removing||to===from)continue;
-    const curve=commPathBetween(from,to,surface.positions,dimensions);
+    const curve=commPathBetween(from,to,surface.positions,dimensions,surface.spawnPairs);
     const distance=Math.hypot(to.x-from.x,to.y-from.y);
     const t=Math.max(.45,1-(dimensions.large?27:14)/Math.max(distance,1));
     const tip=curve.point(t),base=curve.point(t-.05);
@@ -1170,11 +1114,9 @@ document.addEventListener('oc:mail-route',event=>{
    mail pair by definition. Drawing both a spawn line and a mail curve for
    them puts two lines where there is one relationship. Hand the mail to the
    line that is already there — brighten it — and draw separate Mail edges
-   for pairs the lineage does not connect. */
-function isLineagePair(a,b){
-  const parent=(window.OC&&OC.lineageParent)||null;
-  if(!parent)return false;
-  return parent.get(a)===b||parent.get(b)===a;
+   for pairs the drawn lineage does not connect. */
+function isLineagePair(a,b,spawnPairs){
+  return spawnPairs.has(pairKey(a,b));
 }
 function markLiveSpawnEdges(target,liveSet){
   if(!target)return;
@@ -1189,20 +1131,22 @@ function renderCommLayer(target,positions,dimensions){
   layer.replaceChildren();
   const now=Date.now();
   const liveLineage=new Set();
-  commPairs.forEach(pair=>{
+  const spawnPairs=new Set([...target.querySelectorAll('.orrery-spawn-edge')]
+    .map(edge=>pairKey(edge.dataset.parent,edge.dataset.child)));
+  communicationPairs().forEach((pair,key)=>{
     const from=positions.get(pair.a),to=positions.get(pair.b);
-    if(!from||!to)return;
-    const life=1-(now-pair.ts)/MAIL_EDGE_LIFETIME;
-    if(life<=0)return;
-    if(isLineagePair(pair.a,pair.b)){
-      liveLineage.add(pairKey(pair.a,pair.b));
+    if(!from||!to||from.removing||to.removing)return;
+    const recent=commPairs.get(key);
+    const life=recent?Math.max(0,Math.min(1,1-(now-recent.ts)/MAIL_EDGE_LIFETIME)):0;
+    if(isLineagePair(pair.a,pair.b,spawnPairs)){
+      if(life>0)liveLineage.add(key);
       return;
     }
     const curve=commPathBetween(from,to,positions,dimensions);
     layer.appendChild(svgEl('path',{
       class:'orrery-comm-edge',
       d:curve.d,fill:'none',
-      'stroke-opacity':(.58*life).toFixed(3),
+      'stroke-opacity':(.2+.38*life).toFixed(3),
       'data-a':pair.a,'data-b':pair.b,'data-life':life.toFixed(5),
     }));
   });
@@ -1210,13 +1154,10 @@ function renderCommLayer(target,positions,dimensions){
 }
 function refreshCommEdges(){
   const now=Date.now();
-  let layoutChanged=false;
+  const liveNames=new Set(liveAgents.map(agent=>agent.name));
   commPairs.forEach((pair,key)=>{
-    const expired=now-pair.ts>=
-      MAIL_EDGE_LIFETIME+COMM_PROMOTION_HYSTERESIS;
-    const absentFromLive=liveAgents.length&&
-      (!liveAgents.some(agent=>agent.name===pair.a)||!liveAgents.some(agent=>agent.name===pair.b));
-    if(expired||absentFromLive){commPairs.delete(key);layoutChanged=true;}
+    if(now-pair.ts>=MAIL_EDGE_LIFETIME||
+       ((!liveNames.has(pair.a)||!liveNames.has(pair.b))&&!observedConnections.has(key)))commPairs.delete(key);
   });
   renderCommLayer(miniSvg,miniPositions,miniMotion.layoutDimensions||MINI);
   if(planetarium&&planetarium.classList.contains('on')){
@@ -1225,7 +1166,6 @@ function refreshCommEdges(){
       (planetMotion&&planetMotion.layoutDimensions)||PLANET);
   }
   scheduleCommRefresh();
-  return layoutChanged;
 }
 function scheduleCommRefresh(){
   if(commRefreshTimer!==null){
@@ -1237,16 +1177,12 @@ function scheduleCommRefresh(){
     const age=now-pair.ts;
     if(age<MAIL_EDGE_LIFETIME){
       delay=Math.min(delay,500,Math.max(16,MAIL_EDGE_LIFETIME-age));
-    }else if(age<MAIL_EDGE_LIFETIME+COMM_PROMOTION_HYSTERESIS){
-      delay=Math.min(delay,Math.max(
-        16,MAIL_EDGE_LIFETIME+COMM_PROMOTION_HYSTERESIS-age));
     }
   });
   if(!Number.isFinite(delay))return;
   commRefreshTimer=setTimeout(()=>{
     commRefreshTimer=null;
-    const layoutChanged=refreshCommEdges();
-    if(layoutChanged){renderMini();renderPlanetarium();}
+    refreshCommEdges();
   },delay);
 }
 async function seedRecentMail(){
@@ -1299,7 +1235,8 @@ function animateComet(target,positions,fromName,toName,message,large){
         :1-Math.pow(-2*progress+2,3)/2;
       const curve=commPathBetween(
         from,to,positions,large&&planetMotion
-          ?planetMotion.layoutDimensions||PLANET:miniMotion.layoutDimensions||MINI);
+          ?planetMotion.layoutDimensions||PLANET:miniMotion.layoutDimensions||MINI,
+        (large?planetMotion:miniMotion)?.spawnPairs);
       const point=curve.point(eased);
       const envelope=cometEnvelope(progress);
       const ahead=curve.point(Math.min(1,eased+.01)),behind=curve.point(Math.max(0,eased-.01));
@@ -1351,6 +1288,15 @@ function receiveMail(messages){
 
 document.addEventListener('oc:agents',event=>{
   liveAgents=(event.detail&&event.detail.agents)||[];
+  const liveNames=new Set(liveAgents.map(agent=>agent.name));
+  observedConnections.forEach((pair,key)=>{
+    if(liveNames.has(pair.a)&&liveNames.has(pair.b))pair.confirmed=true;
+    else if(pair.confirmed||Date.now()-pair.observedAt>=MAIL_EDGE_LIFETIME)observedConnections.delete(key);
+  });
+  renderMini();
+  renderPlanetarium();
+});
+document.addEventListener('oc:graph',()=>{
   renderMini();
   renderPlanetarium();
 });

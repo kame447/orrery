@@ -223,7 +223,7 @@ Hover over a roster tile to show a copy icon. A copied name can be pasted straig
 
 ### See parent–child relationships and traffic (Planetarium)
 
-`PLANETARIUM` in the header opens, full screen, a tree of who launched whom. A line lights up between any two agents that exchanged Mail in the last 90 seconds, and a comet flies each time Mail arrives, so you can see at a glance where in the team conversations are happening. Click a node to jump straight to that agent's terminal.
+`PLANETARIUM` in the header opens, full screen, a tree of who launched whom. Visible agents are grouped by recorded spawn and communication links, which remain visible when traffic pauses. A line lights up between any two agents that exchanged Mail in the last 90 seconds, and a comet flies each time Mail arrives, so you can see at a glance where in the team conversations are happening. Click a node to jump straight to that agent's terminal.
 
 ![Pressing PLANETARIUM opens a tree with CoralCurie as the parent of 6 children, and lines light up each time Mail arrives. Clicking JadeNoether's node jumps to its terminal](docs/images/cockpit_planetarium.gif)
 

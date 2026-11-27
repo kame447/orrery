@@ -282,7 +282,7 @@ BODY_HEAD_STRIP_RE = re.compile(r"^[#>*\-\s`]+")
 PROXY_ROUTES = {
     "/telemetry/agents": ("/api/agents", ("scope",)),
     "/telemetry/messages": ("/api/messages-since", ("since", "limit")),
-    "/telemetry/graph": ("/api/graph", ("all", "days", "spawn_only")),
+    "/telemetry/graph": ("/api/graph", ("all", "days", "spawn_only", "topology_only")),
     "/telemetry/spawn-catalog": ("/api/spawn-names", ()),
     "/telemetry/fs/dir-search": ("/api/fs/dir-search", ("q", "under")),
     "/telemetry/spawn-status": ("/api/spawn-status", ("name", "attempt_id", "mail_instance_id", "mail_agent_id")),
