@@ -129,6 +129,14 @@ Claude や Codex の指示ファイルにある ORRERY 管理ブロックにつ�
 
 `INSTRUCTION_PATH_UNSAFE` の場合は、所有者、group / other の書込権限、symlink の解決先などを確認します。この fork は Windows drive (DrvFs) の合成権限も自動で例外扱いしません。権限チェックを迂回せず、既存の指示と backup を保全してください。知らせだけで Mail の切替や project key の変更を行う必要はありません。
 
+## Cua Driver の利用状況送信・自動更新確認
+
+Telemetry の fork PR #136 を含む版では、ORRERY の screen relay が起動する Cua Driver に `CUA_DRIVER_RS_TELEMETRY_ENABLED=false` と `CUA_DRIVER_RS_UPDATE_CHECK=false` を渡します。既に動いている Windows daemon や、別の方法で起動する Cua Driver の設定を変えるものではありません。
+
+Windows daemon を利用する場合は、その daemon を実行する Windows user の PowerShell で `cua-driver.exe telemetry status` と `cua-driver.exe config get update_check_enabled` を確認します。永続設定が必要なら Cua Driver 側の操作ガイドに従って利用者が設定します。起動時の自動更新確認が無効なら、対応版・署名・ハッシュの確認は手動で行います。
+
+[Telemetry の Computer use 設定](https://github.com/kame447/orrery-telemetry/blob/0685370fc2acebf9ebac8ea140f2dc94410d9de7/docs/computer-use.md) · [Cua Driver 0.55.0 の操作ガイド](https://github.com/trycua/cua/blob/cua-driver-rs-v0.55.0/docs/content/docs/cua-driver/guides/operate.mdx)
+
 ## mail が表示されない
 
 legacy mode で `scripts/start-cockpit.sh` を使う場合は、`ORRERY_MAIL_DB`、shell の `AGENTSTACK_MAIL_DB`、Telemetry の `env.sh` の順で DB を選びます。backend を直接起動する場合は `ORRERY_MAIL_DB` または共有設定の `mail_db` を明示します。[DB の優先順位](configuration.md#orrery-mail-db) を参照してください。fresh mode では保護された dashboard API を使い、legacy DB には fallback しません。以下の DB 確認は legacy mode が対象です。

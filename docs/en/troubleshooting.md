@@ -129,6 +129,14 @@ If a managed block is outdated, keep the user, HOME and target path shown in the
 
 For `INSTRUCTION_PATH_UNSAFE`, check ownership, group/other write permissions and symlink destinations. This fork does not automatically exempt synthetic permissions on Windows drives (DrvFs). Do not bypass permission checks; preserve existing instructions and backups. These notices alone do not require switching Mail or changing the project key.
 
+## Cua Driver usage telemetry and automatic update checks
+
+In Telemetry versions containing fork PR #136, the ORRERY screen relay launches Cua Driver with `CUA_DRIVER_RS_TELEMETRY_ENABLED=false` and `CUA_DRIVER_RS_UPDATE_CHECK=false`. This does not change a running Windows daemon or the settings of Cua Driver launched separately.
+
+For a Windows daemon, check `cua-driver.exe telemetry status` and `cua-driver.exe config get update_check_enabled` in PowerShell under the Windows account that runs that daemon. If persistent preferences are needed, the operator sets them using the Cua Driver operation guide. With automatic update checks disabled, check the supported version, signature and hash manually.
+
+[Telemetry Computer use setup (Japanese)](https://github.com/kame447/orrery-telemetry/blob/0685370fc2acebf9ebac8ea140f2dc94410d9de7/docs/computer-use.md) · [Cua Driver 0.55.0 operation guide](https://github.com/trycua/cua/blob/cua-driver-rs-v0.55.0/docs/content/docs/cua-driver/guides/operate.mdx)
+
 ## Mail is not shown
 
 In legacy mode, `scripts/start-cockpit.sh` selects the database from `ORRERY_MAIL_DB`, the shell's `AGENTSTACK_MAIL_DB`, then Telemetry's `env.sh`. For a direct backend launch, set `ORRERY_MAIL_DB` or the shared `mail_db` setting to select a custom database. See [Mail DB precedence](configuration.md#orrery-mail-db). Fresh mode uses the protected dashboard API and does not fall back to the legacy database. The database checks below apply to legacy mode.
