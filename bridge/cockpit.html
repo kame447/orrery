@@ -257,6 +257,13 @@
   .roster-status[hidden]{display:none}
   button,input,select,textarea{font:inherit}
   button{color:inherit}
+  .reader-agent-link{
+    border:0;padding:0;background:none;color:inherit;font:inherit;letter-spacing:inherit;text-align:inherit;
+  }
+  .reader-agent-link:not(:disabled){cursor:pointer}
+  .reader-agent-link:not(:disabled):is(:hover,:focus-visible){color:var(--amber)}
+  .reader-agent-link:focus-visible{outline:1px solid var(--amber);outline-offset:2px}
+  .reader-agent-link:disabled{pointer-events:none}
   .new-agent{
     border:1px solid rgb(var(--theme-accent-rgb) / .3);border-radius:5px;padding:4px 8px;
     background:transparent;color:var(--amber);font-size:9px;letter-spacing:.13em;
@@ -3919,7 +3926,7 @@
         "unit": "element"
       },
       "source": {
-        "digest": "9222451d8ff3fcbb476d2d8232a267e9bdd55c3efac1228eb3c31a3b336a03bd",
+        "digest": "1acd03c4e692ed7a56da8a88e39f233cf177b94a496bf277f7fca2756966ecd3",
         "records": [
           ".sesschip\u0000font-size",
           ".colhead\u0000font-size",
@@ -4015,7 +4022,7 @@
         "unit": "element"
       },
       "source": {
-        "digest": "998e08e3975450b0ece64a90e19434e7cc0b506d9d9ba1aa805ec90fc1b7615a",
+        "digest": "da5cc937dd20cd71a8e2543b733301511a3458ab24f3596b96f4712d05666e73",
         "records": [
           ".colhead\u0000letter-spacing",
           ".new-agent\u0000letter-spacing",
@@ -4046,9 +4053,9 @@
       }
     }
   },
-  "inventory_digest": "ba00cbeebb45d239a04488d320592d3854333f6f5962cb02cf0df2bf56c24e24",
+  "inventory_digest": "ab676e7e0f690a8292291f3631598db1c8a1e824fbd4a935a6625aee752673c4",
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "6ffd80b90c31dc96f6a7b1f603715ceafeaa8b46d3d26672b2e3565a71483342",
+  "source_digest": "41e53def73b9febfa487b71b38c8882237bc12ca1dd04ee79e3b94645ea9fa2a",
   "surface": "cockpit",
   "version": 1
 }
@@ -4798,7 +4805,7 @@ const splitPresetByCount=new Map();
 const splitRatiosByPreset=new Map();
 const splitMultiRatiosByLayout=new Map();
 const splitDividers=[];
-let activeId=null,pendingJump=null,pendingJumpSince=0;
+let activeId=null,pendingJump=null,pendingJumpSince=0,pendingJumpReader=false;
 let splitVisible=false,focusedSplitSession=null;
 let socket=null,resizeTimer=null,stageFitFrame=null;
 let splitLabelDrag=null;
@@ -7440,7 +7447,7 @@ function forgetSession(session,{removeGroup=true}={}){
   removeSplitSessionState(session);
   closeSessionPanes(session);
   if(removeGroup)removeSessionGroup(session);else setGroupState(session,'closed');
-  if(pendingJump===session)pendingJump=null;
+  if(pendingJump===session){pendingJump=null;pendingJumpReader=false;}
   renderStage();
 }
 function freshOutputIncomplete(msg){
@@ -7493,7 +7500,11 @@ function resetSession(msg){
   setGroupState(session,'live');
   (Array.isArray(msg.panes)?msg.panes:[]).forEach(meta=>createPane(session,meta));
   refreshSessionGroup(session);
-  if(pendingJump===session){pendingJump=null;focusSession(session);}
+  if(pendingJump===session){
+    const reader=pendingJumpReader;
+    pendingJump=null;pendingJumpReader=false;focusSession(session);
+    if(reader)conversationView.open(session);
+  }
   else if(wasSplitFocus)focusSplitSession(session);
   else if(!splitVisible&&(wasActive||(activeId===null&&!paneWindowSelection)))focusSession(session);
   else renderStage();
@@ -7526,7 +7537,7 @@ function handleSessions(items){
     // resume from the NETWORK embed takes a couple of seconds to reach
     // tmux) — keep waiting through early ticks instead of giving up on
     // the first roster that doesn't list it yet.
-    else if(Date.now()-pendingJumpSince>8000){showOfflineHint(pendingJump);pendingJump=null;}
+    else if(Date.now()-pendingJumpSince>8000){showOfflineHint(pendingJump);pendingJump=null;pendingJumpReader=false;}
   }
   sortSessionGroups(names);renderStage();
   applyAutoClaims();
@@ -7579,9 +7590,9 @@ function agentHasNoTerminal(name){
   if(!rec)return false;
   return /^codex-app/.test(String(rec.cmd||''));
 }
-function jumpToSessionTarget(name,{forceFocus=false}={}){
+function jumpToSessionTarget(name,{forceFocus=false,reader=false}={}){
   if(paneWindows.has(name)){
-    pendingJump=null;terminalLessAgent=null;paneWindowSelection=name;
+    pendingJump=null;pendingJumpReader=false;terminalLessAgent=null;paneWindowSelection=name;
     activeId=null;splitVisible=false;blurTerminalFocus();
     renderStage({fit:false});resetHead();
     scrName.textContent=name;scrPath.textContent='';scrBadge.textContent='';
@@ -7589,8 +7600,11 @@ function jumpToSessionTarget(name,{forceFocus=false}={}){
     paintPaneHeading(scrName.closest('.pane-heading'),name,'live');
     promptTarget.textContent='—';promptAva.hidden=true;
     refreshComposerVocabulary();refreshHeaderStats();
-    focusPaneWindow(name);return;
+    focusPaneWindow(name);
+    if(reader)postPaneMessage({type:'open-reader',session:name});
+    return;
   }
+  pendingJumpReader=reader;
   paneWindowSelection=null;
   const decision=resolveJump(
     name,[...availableSessions.keys()],[...attachedSessions],[...requestedSessions],
@@ -7603,7 +7617,7 @@ function jumpToSessionTarget(name,{forceFocus=false}={}){
     // stay on screen, focused, and would still receive keystrokes -- naming a
     // different agent above it makes that worse, not better.  Drop the active
     // pane so renderStage paints nothing, and take focus off the terminal.
-    pendingJump=null;
+    pendingJump=null;pendingJumpReader=false;
     terminalLessAgent=name;
     if(document.activeElement&&typeof document.activeElement.blur==='function'){
       document.activeElement.blur();
@@ -7634,7 +7648,12 @@ function jumpToSessionTarget(name,{forceFocus=false}={}){
     pendingJump=name;pendingJumpSince=Date.now();return;
   }
   pendingJump=name;pendingJumpSince=Date.now();
-  if(decision.kind==='focus'){pendingJump=null;if(decision.paneId)setActive(decision.paneId,'auto',{forceFocus});else focusSession(name,{forceFocus});}
+  if(decision.kind==='focus'){
+    pendingJump=null;pendingJumpReader=false;
+    if(decision.paneId)setActive(decision.paneId,'auto',{forceFocus});
+    else focusSession(name,{forceFocus});
+    if(reader)conversationView.open(name);
+  }
   else if(decision.kind==='attach')requestAttach(name,true);
 }
 function jumpToAgent(name,event=null){
@@ -8241,6 +8260,7 @@ if(paneChannel)paneChannel.addEventListener('message',event=>{
   if(!paneMessageInScope(msg,paneScope))return; /* another backend's window */
   if(soloSession){
     if(msg.type==='hello'){postPaneMessage({type:'open',session:soloSession,embedded:paneEmbedded});return;}
+    if(msg.type==='open-reader'&&msg.session===soloSession){jumpToSessionTarget(soloSession,{reader:true});return;}
     if(msg.session!==soloSession||paneEmbedded)return;
     if(msg.type==='close')closeThisPaneWindow();
     else if(msg.type==='focus'){try{window.focus();postPaneMessage({type:'focused',session:soloSession,request:msg.request});}catch(_){/* no success acknowledgement */}}
@@ -8363,7 +8383,7 @@ function handle(msg){
       if(msg.session){
         const wasRequesting=requestedSessions.delete(msg.session);
         if(wasRequesting)setGroupState(msg.session,'error');
-        if(pendingJump===msg.session){showOfflineHint(msg.session);pendingJump=null;}
+        if(pendingJump===msg.session){showOfflineHint(msg.session);pendingJump=null;pendingJumpReader=false;}
       }
       console.warn('backend error:',msg.message);
       break;
@@ -8920,6 +8940,30 @@ function selectAgent(name){selectedAgent=name;tiles.forEach((el,n)=>el.classList
   // used to follow only an activated terminal pane (2026-09-25).
   document.dispatchEvent(new CustomEvent('oc:filter-agent',{detail:{agent:name}}));}
 function currentAgentNamed(name){return currentAgents.find(agent=>agent&&agent.name===name)||null;}
+function configureReaderAgentButton(button,name){
+  const known=Boolean(name&&(!soloSession||name===soloSession)&&currentAgentNamed(name)&&!agentHasNoTerminal(name));
+  let enabled=false;
+  try{enabled=localStorage.getItem('oc-term-conversation-enabled')==='1';}catch(_){}
+  button.type='button';
+  button.classList.add('reader-agent-link');
+  button.disabled=!known||!enabled;
+  button.dataset.agentName=name;
+  const label=button.disabled?name:'Open '+name+' Reader';
+  button.title=[label,button.dataset.delivery].filter(Boolean).join(' · ');
+  if(button.disabled){
+    button.removeAttribute('aria-label');
+  }else button.ariaLabel=label;
+  if(!button.onclick)button.onclick=event=>{
+    event.stopPropagation();
+    const target=button.dataset.agentName;
+    // A roster or Reader preference can change before the next paint.
+    configureReaderAgentButton(button,target);
+    if(button.disabled)return;
+    selectAgent(target);
+    if(activeSession()===target)conversationView.open(target);
+    else jumpToSessionTarget(target,{reader:true});
+  };
+}
 function paintSplitRoles(agents){
   agents.forEach(agent=>{
     const cell=splitCells.get(agent.name);if(!cell||!cell._role)return;
@@ -10061,7 +10105,7 @@ function assignLineageHues(live){
 window.OC=Object.freeze({
   esc,relTime,jumpToAgent,rootOf,providerPresentation,
   railPositions,railMoveRows,railArrive,
-  renderPeerAvatar:(name,existing)=>currentAgentNamed(name)?conversationAvatar(name,'',existing):null,
+  renderPeerAvatar:conversationPeerAvatar,configureReaderAgentButton,
   lineageHue,                       // Map: agent name -> lineage hex
   get lineageParent(){return lineageParent;},  // Map: child -> parent
   agents:()=>currentAgents,
@@ -12000,6 +12044,7 @@ const conversationView=(()=>{
         openExternalUrl,
         renderPeerAvatar:conversationPeerAvatar,
         renderAvatar:conversationAvatar,
+        configureAgentButton:configureReaderAgentButton,
         onReference:(value,beforeFocus)=>readerReply.add(value,beforeFocus),
       });
       return instance;
@@ -12028,7 +12073,10 @@ const conversationView=(()=>{
     if(event.key===key&&enabled())ensure();
   });
   if(enabled())ensure();
-  return Object.freeze({ready:ensure,open:async()=>{const view=await ensure();if(view&&enabled())view.open();},
+  return Object.freeze({ready:ensure,open:async(name=null)=>{
+    const view=await ensure();
+    if(view&&enabled()&&(!name||activeSession()===name))view.open();
+  },
     close:()=>instance&&instance.close(),refresh:()=>instance&&instance.refresh()});
 })();
 </script>
