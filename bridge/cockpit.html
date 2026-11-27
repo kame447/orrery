@@ -4053,9 +4053,9 @@
       }
     }
   },
-  "inventory_digest": "4b47d384cd3a8e580610d9f83fce1db3097a17637799a81c12b79bdcf34d8285",
+  "inventory_digest": "56be2f4bafebf3660be548f20c4b98bb8e32b19498362d211eb443d85af1f728",
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "a66a31f15f4ea32f79cf440d14df6e29a017b422b05a0df07fff5662e626da40",
+  "source_digest": "cf1d0d804ef4211707a7ede93c2c85d25cadf1872011c621a0c8a4fc183f2bf3",
   "surface": "cockpit",
   "version": 1
 }
@@ -8929,6 +8929,7 @@ const bulkSelectedAgents=new Set();
 const BULK_ACTION_ARM_MS=3000;
 let rosterSelectMode=false,bulkActionArmed=null,bulkActionBusy=null,bulkActionArmTimer=null;
 let liveRosterAgents=[],stoppedSelectAgents=[],stoppedSelectRequest=null;
+let liveRetiredNames=new Set();
 
 function isBulkSelectableAgent(agent){
   return Boolean(agent&&agent.name&&agent.lifecycle!=='persistent'&&agent.category!=='warmup'&&
@@ -9737,14 +9738,19 @@ function handlePinToggle(name,event){
 /* The live roster (scope=live) carries the retired names on their own; a
    dashboard without scope support answers the full roster instead, whose
    rows say which are retired. */
+function isRetiredRosterAgent(agent){
+  return agent?.category==='retired'||agent?.retired===true;
+}
 function retiredNamesOf(roster){
   if(roster&&Array.isArray(roster.retired))return roster.retired.filter(name=>typeof name==='string');
-  return ((roster&&roster.agents)||[]).filter(agent=>agent&&agent.category==='retired').map(agent=>agent.name);
+  return ((roster&&roster.agents)||[]).filter(isRetiredRosterAgent).map(agent=>agent.name);
 }
 function pruneRetiredPins(roster){
+  const retiredNames=new Set(retiredNamesOf(roster));
   let dirty=false;
-  retiredNamesOf(roster).forEach(name=>{if(pinnedAgents.delete(name))dirty=true;});
+  retiredNames.forEach(name=>{if(pinnedAgents.delete(name))dirty=true;});
   if(dirty)persistPinnedAgents();
+  return retiredNames;
 }
 
 /* When did this agent last actually do something?
@@ -9985,7 +9991,9 @@ function renderRoster(){
     if(positions.has(parent))arrivalPortraits.set(a.name,parent.querySelector('.medal').getBoundingClientRect());
   }
   const seen=new Set(liveRosterAgents.map(agent=>agent.name));
-  const agents=liveRosterAgents.concat(stoppedSelectAgents.filter(agent=>!seen.has(agent.name)));
+  // A live poll can retire an agent while Select still holds older history.
+  const agents=liveRosterAgents.concat(stoppedSelectAgents.filter(agent=>
+    !seen.has(agent.name)&&!liveRetiredNames.has(agent.name)&&!isRetiredRosterAgent(agent)));
   descriptorStore.retain(agents.map(agent=>agent.name));
   agents.forEach(agent=>{agent.descriptor=descriptorStore.get(agent,agents);});
   currentAgents=agents;
@@ -10008,7 +10016,7 @@ function renderRoster(){
   if(paletteOverlay.classList.contains('on'))renderPalette();
 }
 async function loadStoppedSelectAgents(){
-  // The default roster stays live-only. Select also shows historical permission targets.
+  // Select also shows non-retired history for finished and resumable agents.
   const controller=new AbortController();stoppedSelectRequest=controller;
   try{
     const [response,api]=await Promise.all([
@@ -10017,7 +10025,8 @@ async function loadStoppedSelectAgents(){
     if(!response.ok)return;
     const roster=await response.json();
     if(controller.signal.aborted||!Array.isArray(roster?.agents))return;
-    stoppedSelectAgents=roster.agents.filter(agent=>agent&&(agent.category==='finished'&&isBulkSelectableAgent(agent)||
+    stoppedSelectAgents=roster.agents.filter(agent=>agent&&!isRetiredRosterAgent(agent)&&!liveRetiredNames.has(agent.name)&&(
+      agent.category==='finished'&&isBulkSelectableAgent(agent)||
       agent.running===false&&!agentPermissionBlockReason(agent,api)))
       .map(prepareRosterRow);
     if(stoppedSelectAgents.length)renderRoster();
@@ -10041,8 +10050,9 @@ async function pollAgents(){
       throw new Error(String(response.status));
     }
     const d=await response.json();
-    if(annotationEpoch!==rosterAnnotationEpoch)return false;
-    pruneRetiredPins(d);
+    if(annotationEpoch!==rosterAnnotationEpoch||!Array.isArray(d?.agents))return false;
+    liveRetiredNames=pruneRetiredPins(d);
+    stoppedSelectAgents=stoppedSelectAgents.filter(agent=>!liveRetiredNames.has(agent.name));
     // warmup(warm-*/pending-*) はプール予熱でありエージェントではない。
     // 従来は名前順で最下部に沈んで見えなかったが、recency ソート導入で
     // 浮上するようになったため明示除外（claim され改名された時点で現れる）。
