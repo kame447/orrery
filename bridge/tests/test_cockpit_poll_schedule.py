@@ -244,7 +244,7 @@ FETCH = r"""
 const document={hidden:false,dispatchEvent(){}};const networkOverlay={classList:{contains:()=>false}};
 class CustomEvent{constructor(t,o){this.type=t;this.detail=o&&o.detail;}}
 let lineageParent=new Map([['Kid','Mom']]);const seenMsg=new Set();let mailSince=0;const mailBacklog=[];
-let communicationEdges=[],graphTopologyKey='';const currentAgents=[];
+let communicationEdges=[],graphTopologyKey='',graphTopologyRetryAt=0;const currentAgents=[];
 function assignLineageHues(){}
 const asked=[];let reply;
 function fetch(url,opts){asked.push(url);return Promise.resolve(reply);}
@@ -274,6 +274,62 @@ def test_a_graph_answer_replaces_the_lineage():
       reply=json(200,{spawn:[{source:'Dad',target:'Kid'}],edges:[]});const ok=await pollGraph();
       return {ok:ok!==false,lineage:[...lineageParent]};""")
     assert r == {"ok": True, "lineage": [["Kid", "Dad"]]}
+
+
+def test_graph_unsupported_projection_falls_back_then_retries_after_ttl():
+    r = run_polls("""
+      let now=1800000000000,upgraded=false;Date.now=()=>now;
+      fetch=async url=>{
+        asked.push(url);
+        if(url.includes('topology_only=1')&&!upgraded)return json(400,{error:'invalid_mail_query'});
+        return json(200,{nodes:[{name:'Kid'}],spawn:[{source:'Dad',target:'Kid'}],
+          edges:[{source:'Kid',target:'Peer'}]});
+      };
+      const first=await pollGraph();const lineage=[...lineageParent],edges=communicationEdges;
+      now+=6000;await pollGraph();
+      now+=54001;upgraded=true;await pollGraph();
+      now+=6000;await pollGraph();
+      return {ok:first!==false,lineage,edges,asked};""")
+    assert r == {
+        "ok": True,
+        "lineage": [["Kid", "Dad"]],
+        "edges": [{"source": "Kid", "target": "Peer"}],
+        "asked": [
+            "/telemetry/graph?all=1&topology_only=1",
+            "/telemetry/graph?all=1",
+            "/telemetry/graph?all=1",
+            "/telemetry/graph?all=1&topology_only=1",
+            "/telemetry/graph?all=1&topology_only=1",
+        ],
+    }
+
+
+@pytest.mark.parametrize("status,body", [
+    (400, {"error": "other_query_error"}), (400, None),
+    *[(status, {"error": "invalid_mail_query"}) for status in (401, 403, 409, 500, 502, 503)],
+    (200, {"spawn": [], "edges": [], "degraded": True}),
+    (200, {"spawn": [], "edges": [], "error": "invalid_mail_query"}),
+])
+def test_graph_projection_other_failures_do_not_fallback(status, body):
+    r = run_polls(f"""
+      reply=json({status},{json.dumps(body)});const ok=await pollGraph();
+      return {{ok,lineage:[...lineageParent],asked,retryAt:graphTopologyRetryAt}};""")
+    assert r == {"ok": False, "lineage": [["Kid", "Mom"]],
+                 "asked": ["/telemetry/graph?all=1&topology_only=1"], "retryAt": 0}
+
+
+@pytest.mark.parametrize("status,body", [
+    *[(status, {"error": "unavailable"}) for status in (400, 401, 403, 409, 500, 503)],
+    (200, {"spawn": [], "edges": [], "degraded": True}),
+    (200, {"spawn": [], "edges": [None]}),
+])
+def test_graph_fallback_failure_keeps_last_topology(status, body):
+    r = run_polls(f"""
+      fetch=async url=>{{asked.push(url);return asked.length===1
+        ?json(400,{{error:'invalid_mail_query'}}):json({status},{json.dumps(body)});}};
+      const ok=await pollGraph();return {{ok,lineage:[...lineageParent],asked}};""")
+    assert r == {"ok": False, "lineage": [["Kid", "Mom"]],
+                 "asked": ["/telemetry/graph?all=1&topology_only=1", "/telemetry/graph?all=1"]}
 
 
 def test_a_502_keeps_the_lineage_and_counts_as_a_failure():
