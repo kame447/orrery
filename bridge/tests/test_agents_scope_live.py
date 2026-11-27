@@ -87,7 +87,7 @@ def test_the_roster_poll_asks_for_the_live_scope():
     assert "fetch('/telemetry/agents?scope=live'" in poll
     assert "pruneRetiredPins(d);" in poll
     # the client-side live filter stays: an older dashboard answers the full roster
-    assert "(a.running||a.category==='agent')&&a.category!=='warmup'" in poll
+    assert ".filter(isVisibleRosterAgent)" in poll
 
 
 def test_the_backend_forwards_scope_and_keeps_the_full_roster_without_it():
@@ -105,3 +105,26 @@ def test_the_backend_forwards_scope_and_keeps_the_full_roster_without_it():
 
 def test_scope_is_the_only_new_query_passed_through():
     assert ob.PROXY_ROUTES["/telemetry/agents"] == ("/api/agents", ("scope",))
+
+@pytest.mark.skipif(NODE is None, reason="node is not installed")
+def test_verified_unobserved_launch_is_visible_but_not_actionable():
+    html = COCKPIT.read_text(encoding="utf-8")
+    names = ("isUnobservedNativeAgent", "isVisibleRosterAgent", "normalizeSearchText",
+             "isBulkExitEligibleAgent", "isBulkSelectableAgent")
+    functions = [re.search(r"function " + name + r"\([^\n]*\)\{.*?\n\}", html, re.DOTALL).group(0)
+                 for name in names]
+    rows = [
+        dict(name="Live", running=True, category="agent"),
+        dict(name="Unobserved", running=None, category="unknown", native_launch_unended=True),
+        dict(name="Registered", running=None, category="unknown", native_launch_unended=False),
+        dict(name="Retired", running=None, category="unknown", native_launch_unended=True, retired=True),
+        dict(name="Finished", running=False, category="finished", native_launch_unended=False),
+        dict(name="Warmup", running=True, category="warmup"),
+    ]
+    script = "\n".join(functions + [
+        f"const rows={json.dumps(rows)};",
+        "console.log(JSON.stringify([rows.filter(isVisibleRosterAgent).map(a=>a.name),"
+        "rows.filter(isBulkSelectableAgent).map(a=>a.name)]));",
+    ])
+    done = subprocess.run([NODE, "-e", script], capture_output=True, text=True, check=True, timeout=30)
+    assert json.loads(done.stdout) == [["Live", "Unobserved"], ["Live", "Finished"]]
