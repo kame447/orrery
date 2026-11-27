@@ -53,9 +53,11 @@ SOFTWARE.
     const enabled=events.some(e=>e.step||e.step_turn||e.step_boundary);
     if(!enabled)return {groups:[],consumed:new Set()};
     const groups=[],consumed=new Set(),calls=new Map(),results=new Map(),completions=new Map();
+    const sleepCalls=new Map();
     let current=null,segment='partial',turn=null;
     function cut(event){
       if(current)current.closed=true;
+      sleepCalls.clear();
       current=null;segment='after:'+event.id;
     }
     function startTurn(event,id,started){
@@ -90,6 +92,10 @@ SOFTWARE.
       }
       if(provider==='Codex'&&event.step_wrapper===true)consumed.add(event.id);
       const step=event.step;
+      if(provider==='Codex'&&event.kind==='tool'&&event.text==='sleep'&&key(event.sleep_call_id)&&!step){
+        // A duplicate identity is ambiguous; do not hide either request.
+        sleepCalls.set(event.sleep_call_id,sleepCalls.has(event.sleep_call_id)?null:event);
+      }
       if(step&&key(step.id)){
         if(step.phase==='call'&&provider==='Claude'){
           const owner=active();owner.anchor??=event.id;
@@ -103,9 +109,17 @@ SOFTWARE.
           const completionKey=(id||'')+':'+step.id;
           let completion=completions.get(completionKey);
           if(!completion){
+            // Only pair a clock completion with its exact prior request in
+            // this visible segment. Never consume a request across a turn
+            // or message boundary, or merely because the tool names match.
+            const clockSleep=step.tool==='sleep'&&step.clock_sleep===true;
+            const request=clockSleep&&(!turn||!id||turn.id===id)
+              ?sleepCalls.get(step.id):null;
+            if(clockSleep)sleepCalls.delete(step.id);
             if(id&&turn?.id!==id)startTurn(event,id);
-            const owner=active();owner.anchor??=event.id;
-            completion={owner,eventId:event.id};completions.set(completionKey,completion);
+            if(request)consumed.add(request.id);
+            const owner=active();owner.anchor??=request?.id||event.id;
+            completion={owner,eventId:request?.id||event.id};completions.set(completionKey,completion);
           }
           completion.owner.steps.set(step.id,{...step,eventId:completion.eventId});
         }

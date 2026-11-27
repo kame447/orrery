@@ -15,7 +15,7 @@ from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from conversation_mail import received, sent
 from conversation_artifacts import SHOW_FILES, completed_show_files
-from conversation_steps import codex_completed, codex_turn, mark_step_boundary
+from conversation_steps import codex_completed, codex_turn, mark_step_boundary, opaque
 
 MAX_SCAN = 4 * 1024 * 1024
 MAX_TEXT = 64 * 1024
@@ -212,6 +212,12 @@ def _codex_event(item, offset):
             if SHOW_FILES.fullmatch(name.split('.')[-1]):return None
             event = sent(dict(base, kind="tool", role="assistant", text=name[:160]),name,
                          payload.get('input',payload.get('arguments')))
+            # Expose only the opaque identity of a native clock request.
+            # It is not proof of completion and remains visible until matched.
+            if kind == 'function_call' and payload.get('namespace') == 'clock' and name == 'sleep':
+                call_id = opaque(payload.get('call_id'))
+                if call_id:
+                    event['sleep_call_id'] = call_id
             if name in {'exec', 'functions.exec'}:
                 event['step_wrapper'] = True
             return event
