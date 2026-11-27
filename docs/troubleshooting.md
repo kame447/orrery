@@ -110,6 +110,17 @@ catalog の fallback が見えても offline spawn はできません。spawn PO
 
 現行 build は介入待ちの node を常に最前面へ描きます。古い build で再現する場合は ORRERY Telemetry を更新してください。更新前、または NETWORK で判断しにくい場合は `DECK` に切り替えます。質問待ちは card 右上の `?`、承認待ちは赤い外枠と `APPROVAL` で確認できます。実画面は[使い方の「介入待ちの見分け方」](usage.md#介入待ちの見分け方)を参照してください。
 
+## cockpit の動きが出ない
+
+cockpit の動きが出ないときは、ブラウザーを動かしている OS の設定を確認します。ブラウザーは OS の「動きを減らす」設定を `prefers-reduced-motion` で伝えます。cockpit はこの設定に従い、NETWORK の node 移動を即時にし、作業中を示す輪の回転や Mail の移動アニメーションを止めます。表示上の動きがなくても、agent や Mail の処理が停止したとは限りません。
+
+たとえば、WSL の cockpit をリモート デスクトップの Windows ブラウザーで開いたとき、接続先の Windows で **アニメーション効果** がオフになっていて、これらの動きが出ないことがありました。
+
+- Windows は **設定 → アクセシビリティ → 視覚効果 → アニメーション効果** をオンにします。リモート デスクトップを使っている場合は、接続の設定でもアニメーションが有効か確認します。[Microsoft の設定ガイド](https://support.microsoft.com/ja-jp/accessibility/windows/magnifier/appendix-d-set-up-your-device-for-screen-comfort)
+- macOS は **システム設定 → アクセシビリティ → ディスプレイ** で **視差効果を減らす** をオフにします。macOS 27 では、このスイッチは **アクセシビリティ → 視差効果** にあります。[Apple の設定ガイド](https://support.apple.com/ja-jp/guide/mac-help/mchlc03f57a1/27/mac/27)
+
+動きを表示したい場合だけ設定を変え、ブラウザーで cockpit を読み直します。動きを減らす設定が必要な場合は、そのまま利用できます。
+
 ## mail が表示されない
 
 legacy mode で `scripts/start-cockpit.sh` を使う場合は、`ORRERY_MAIL_DB`、shell の `AGENTSTACK_MAIL_DB`、Telemetry の `env.sh` の順で DB を選びます。backend を直接起動する場合は `ORRERY_MAIL_DB` または共有設定の `mail_db` を明示します。[DB の優先順位](configuration.md#orrery-mail-db) を参照してください。fresh mode では保護された dashboard API を使い、legacy DB には fallback しません。以下の DB 確認は legacy mode が対象です。
