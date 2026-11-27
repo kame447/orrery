@@ -166,6 +166,42 @@ def test_different_queries_are_not_shared():
     assert dash.asked_for("/api/messages-since") == 2
 
 
+def test_graph_topology_projection_is_forwarded_with_existing_filters():
+    dash = FakeDashboard(delay=0.01)
+
+    async def scenario(get, *_):
+        return await get("/telemetry/graph?topology_only=1&all=1&days=7&unexpected=ignored")
+    assert run(scenario, dash) == (200, GRAPH)
+    assert dash.asked == ["/api/graph?all=1&days=7&topology_only=1"]
+
+
+def test_graph_projections_have_separate_inflight_keys_and_payloads():
+    class ProjectionDashboard(FakeDashboard):
+        async def handle(self, request):
+            await super().handle(request)
+            if request.query.get("topology_only") == "1":
+                projection = "topology"
+            elif request.query.get("spawn_only") == "1":
+                projection = "spawn"
+            else:
+                projection = "full"
+            return web.json_response({"projection": projection, "asked": request.path_qs})
+
+    dash = ProjectionDashboard(delay=0.1)
+    paths = ["/telemetry/graph?all=1", "/telemetry/graph?all=1&spawn_only=1",
+             "/telemetry/graph?all=1&topology_only=1"]
+
+    async def scenario(get, *_):
+        return await asyncio.gather(*(get(path) for path in paths for _ in range(2)))
+    answers = run(scenario, dash)
+    for index, projection in enumerate(("full", "spawn", "topology")):
+        expected_path = paths[index].replace("/telemetry/", "/api/")
+        assert answers[index * 2:(index + 1) * 2] == [
+            (200, {"projection": projection, "asked": expected_path})] * 2
+        assert dash.asked.count(expected_path) == 1
+    assert dash.asked_for("/api/graph") == 3
+
+
 def test_routes_that_are_not_polled_are_not_shared():
     dash = FakeDashboard()
 
