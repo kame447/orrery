@@ -49,8 +49,23 @@
     function active(){return getPane();}
     function record(p){
       let row=rows.get(p);
-      if(!row){row={pane:p,state:'none',open:false,seen:'',pending:null,dirty:false,data:{},timer:null};rows.set(p,row);}
+      if(!row){row={pane:p,state:'none',open:false,seen:'',candidate:null,inspectionUnavailable:false,pending:null,dirty:false,data:{},timer:null};rows.set(p,row);}
       return row;
+    }
+    function dismissUnavailable(row){
+      // Only dismiss an inspection failure when the current terminal view no longer
+      // contains an approval candidate. Never hide an ambiguous submitted answer.
+      if(row.state!=='unavailable'||!row.inspectionUnavailable||row.candidate!==false||row.data.logWarning||
+        !row.pane.host.isConnected||row.pane.host.dataset.snapshot==='pending')return;
+      if(active()===row.pane&&bar.contains(document.activeElement)){
+        const scope=row.pane.host.closest('.split-cell')||screen;
+        const reader=scope.querySelector('.conversation-panel:not([hidden]) .conversation-scroll');
+        if(!reader)return;
+        reader.focus({preventScroll:true});
+        if(document.activeElement!==reader)return;
+      }
+      row.state='none';row.open=false;row.data={};row.dirty=false;row.inspectionUnavailable=false;
+      painted=null;
     }
     function visible(p){
       if(!p)return false;
@@ -106,17 +121,16 @@
     };
     function transmit(row,payload){
       const id='approval-'+(++sequence);row.pending={id,type:payload.type};paint();
-      if(!send({...payload,paneId:row.pane.meta.paneId,session:row.pane.session,requestId:id})){
-        row.pending=null;row.state=payload.type==='approval-answer'?'unknown':'unavailable';
-        row.data={...row.data,message:payload.type==='approval-answer'?'Outcome unknown — check terminal':'Pane unavailable'};
-        paint();return;
-      }
+      const failed=()=>{
+        const wasUnknown=['unknown','sent','sending'].includes(row.state);
+        row.pending=null;row.state=payload.type==='approval-answer'||wasUnknown?'unknown':'unavailable';
+        row.inspectionUnavailable=payload.type==='approval-inspect'&&!wasUnknown;
+        row.data={...row.data,message:row.state==='unknown'?'Outcome unknown — check terminal':'Pane unavailable'};
+        dismissUnavailable(row);paint();
+      };
+      if(!send({...payload,paneId:row.pane.meta.paneId,session:row.pane.session,requestId:id})){failed();return;}
       clearTimeout(row.timer);
-      row.timer=setTimeout(()=>{
-        if(row.pending?.id!==id)return;
-        row.pending=null;row.state=payload.type==='approval-answer'?'unknown':'unavailable';
-        row.data={...row.data,message:payload.type==='approval-answer'?'Outcome unknown — check terminal':'Pane unavailable'};paint();
-      },6000);
+      row.timer=setTimeout(()=>{if(row.pending?.id===id)failed();},6000);
     }
     function answer(row,choice){
       if(row.state!=='ready'||row.pending||active()!==row.pane)return;
@@ -127,14 +141,15 @@
       if(!p||!p.term||!p.host?.isConnected)return;
       const row=record(p);
       if(p.host.dataset.snapshot==='pending')return;
-      if(row.pending){row.dirty=true;return;}
       const buffer=p.term.buffer.active,lines=[];
       for(let i=buffer.baseY;i<Math.min(buffer.length,buffer.baseY+p.term.rows);i++)lines.push(buffer.getLine(i)?.translateToString(true)||'');
       const text=lines.join('\n');
       if(row.seen===text&&!force)return;
       row.seen=text;
-      const candidate=/Allow the |Would you like to run|Read outside|Allow this read outside|Do you want to proceed\?|Allow for this session|Yes, proceed|Yes, but ask again|keep allowing any reads/.test(text);
-      if(!candidate){
+      row.candidate=/Allow the |Would you like to run|Read outside|Allow this read outside|Do you want to proceed\?|Allow for this session|Yes, proceed|Yes, but ask again|keep allowing any reads/.test(text);
+      if(row.pending){row.dirty=true;return;}
+      if(!row.candidate){
+        dismissUnavailable(row);
         if(!['none','closed','unavailable'].includes(row.state))transmit(row,{type:'approval-inspect'});
         paint();return;
       }
@@ -145,13 +160,19 @@
       const p=[...getPanes()].find(p=>p.meta.paneId===message.paneId&&p.session===message.session);
       const row=p&&rows.get(p);
       if(!row||row.pending?.id!==message.requestId)return;
+      const pendingType=row.pending.type;
       clearTimeout(row.timer);row.pending=null;
       const previous=row.state;
+      const logWarning=row.data.logWarning;
       if(message.state==='ready'&&message.token!==row.data.token){row.open=false;row.wantDefaultFocus=false;row.data={};}
       row.state=message.state==='none'&&['sent','closed'].includes(previous)?'closed':message.state==='none'&&previous==='unknown'?'unknown':message.state;
       if(['terminal','unavailable','changed'].includes(message.state))row.data={};
       row.data={...row.data,...message};
-      if(row.state==='unknown'&&message.state==='none')row.data.message='Outcome unknown — check terminal';
+      if(pendingType==='approval-inspect'&&message.state==='unavailable'&&logWarning)row.data.logWarning=true;
+      if(pendingType==='approval-inspect'&&message.state==='unavailable'&&['unknown','sent','sending'].includes(previous))row.state='unknown';
+      if(row.state==='unknown'&&['none','unavailable'].includes(message.state))row.data.message='Outcome unknown — check terminal';
+      row.inspectionUnavailable=pendingType==='approval-inspect'&&row.state==='unavailable';
+      dismissUnavailable(row);
       if(message.state==='changed'){row.open=false;row.seen='';}
       if(message.state==='refused'&&message.retryable)row.open=false;
       paint();
@@ -172,7 +193,8 @@
       for(const row of rows.values()){
         clearTimeout(row.timer);row.pending=null;
         if(row.state==='none')continue;
-        row.state=row.state==='sending'?'unknown':'unavailable';
+        row.state=['sending','sent','unknown'].includes(row.state)?'unknown':'unavailable';
+        row.inspectionUnavailable=false;
         row.data={...row.data,message:row.state==='unknown'?'Outcome unknown — check terminal':'Pane unavailable'};
       }
       paint();

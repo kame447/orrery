@@ -170,8 +170,12 @@ def test_identical_next_prompt_can_be_answered_again(approval_browser):
 
 def test_ack_does_not_enable_repeat_and_timeout_keeps_terminal_link(approval_browser):
     js,wait,client,pane,_=approval_browser
-    pane.change(MCP,stay=True)
+    pane.change(MCP.replace('message_id: 9','message_id: 10'),stay=True)
+    wait("document.querySelector('.reader-approval-full').textContent==='message_id: 10'")
     js("document.querySelector('.reader-approval-toggle').click()")
+    wait("document.querySelector('.reader-approval-choice.is-once:not(:disabled)')!==null")
+    js("document.querySelector('.reader-approval-choice.is-once:not(:disabled)').focus()")
+    assert js('document.activeElement.dataset.choice')=='1'
     enter(client)
     wait("document.querySelector('.reader-approval-main-title').textContent.startsWith('Response sent')")
     first=pane.keys.read_text()
@@ -198,6 +202,89 @@ def test_detached_pane_reports_unavailable_without_sending(approval_browser):
     wait("document.querySelector('.reader-approval-main-title').textContent==='Pane unavailable'")
     assert not pane.keys.exists()
     assert js("!document.querySelector('.reader-approval-terminal').hidden")
+
+
+@pytest.mark.parametrize('failure',['unavailable','timeout'])
+def test_unavailable_inspection_clears_when_terminal_prompt_closes(approval_browser,failure):
+    js,wait,_,pane,_=approval_browser
+    js("""window.heldApproval=null;window.receiveApproval=handle;
+        handle=msg=>{
+          if(msg.type==='approval'&&msg.state==='ready'){heldApproval=msg;return;}
+          receiveApproval(msg);
+        }""")
+    pane.change(MCP.replace('message_id: 9','message_id: 10'))
+    wait('heldApproval!==null')
+    if failure=='unavailable':
+        js("""handle=receiveApproval;
+            const {type,paneId,session,requestId}=heldApproval;
+            handle({type,paneId,session,requestId,state:'unavailable',message:'Pane unavailable'});""")
+        wait("document.querySelector('.reader-approval-main-title').textContent==='Pane unavailable'")
+        assert js("!document.querySelector('.reader-approval-terminal').hidden")
+
+    js("document.querySelector('.reader-approval-toggle').focus()")
+    pane.change('Response received\nWaiting.')
+    wait("document.querySelector('.reader-approval').hidden")
+
+    assert js("document.activeElement.matches('.conversation-scroll')")
+    js('handle=receiveApproval')
+    pane.change(MCP)
+    wait("!document.querySelector('.reader-approval').hidden&&document.querySelector('.reader-approval-main-title').textContent==='Approval needed'")
+    assert not pane.keys.exists()
+
+
+def test_unavailable_reply_to_close_inspection_dismisses_card(approval_browser):
+    js,wait,_,pane,_=approval_browser
+    js("""window.receiveApproval=handle;
+        handle=msg=>receiveApproval(msg.type==='approval'&&msg.state==='none'
+          ? {...msg,state:'unavailable',message:'Pane unavailable'} : msg);""")
+    pane.change('Response received\nWaiting.')
+    wait("approvalTrace.some(frame=>frame.state==='unavailable')")
+    wait("document.querySelector('.reader-approval').hidden")
+    assert not pane.keys.exists()
+
+
+def test_unavailable_inspection_preserves_receipt_log_warning(approval_browser):
+    js,wait,_,pane,_=approval_browser
+    pane.change(MCP.replace('message_id: 9','message_id: 10'),stay=True)
+    wait("document.querySelector('.reader-approval-full').textContent==='message_id: 10'")
+    js("document.querySelector('.reader-approval-toggle').click()")
+    wait("document.querySelector('.reader-approval-choice.is-once:not(:disabled)')!==null")
+    js("""window.receiveApproval=handle;
+        handle=msg=>receiveApproval(msg.type==='approval'&&msg.state==='sent'
+          ? {...msg,logWarning:true} : msg.type==='approval'&&msg.state==='none'
+          ? {...msg,state:'unavailable',message:'Pane unavailable'} : msg);
+        document.querySelector('.reader-approval-choice.is-once:not(:disabled)').click()""")
+    wait("document.querySelector('.reader-approval-status').textContent.includes('Response log could not be saved')")
+    first=pane.keys.read_text()
+    pane.change('Response received\nWaiting.')
+    wait("document.querySelector('.reader-approval-main-title').textContent==='Outcome unknown — check terminal'")
+    assert js("!document.querySelector('.reader-approval').hidden")
+    assert js("document.querySelector('.reader-approval-status').textContent.includes('Response log could not be saved')")
+    assert pane.keys.read_text()==first
+
+
+def test_unknown_answer_stays_visible_after_prompt_closes_and_disconnects(approval_browser):
+    js,wait,client,pane,_=approval_browser
+    pane.change(MCP.replace('message_id: 9','message_id: 10'),stay=True)
+    wait("document.querySelector('.reader-approval-full').textContent==='message_id: 10'")
+    js("document.querySelector('.reader-approval-toggle').click()")
+    wait("document.querySelector('.reader-approval-choice.is-once:not(:disabled)')!==null")
+    js("""window.heldAnswer=null;window.receiveApproval=handle;
+        handle=msg=>{
+          if(msg.type==='approval'){heldAnswer=msg;return;}
+          receiveApproval(msg);
+        };document.querySelector('.reader-approval-choice.is-once:not(:disabled)').click()""")
+    wait("heldAnswer!==null&&heldAnswer.state==='sent'")
+    first=pane.keys.read_text()
+    pane.change('Response received\nWaiting.')
+    wait("document.querySelector('.reader-approval-main-title').textContent==='Outcome unknown — check terminal'")
+    assert js("!document.querySelector('.reader-approval').hidden")
+    assert js("!document.querySelector('.reader-approval-terminal').hidden")
+    js('readerApproval.disconnected();readerApproval.disconnected()')
+    assert js("document.querySelector('.reader-approval-main-title').textContent")=='Outcome unknown — check terminal'
+    assert js("!document.querySelector('.reader-approval').hidden")
+    assert js("document.querySelectorAll('.reader-approval-choice').length")==0
+    assert pane.keys.read_text()==first
 
 
 @pytest.mark.parametrize('theme',['dark','light'])
