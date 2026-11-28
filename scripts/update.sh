@@ -405,6 +405,38 @@ for _ in range(10):
 PY
 )"
 
+cockpit_head="$(git -C "$COCKPIT_ROOT" rev-parse HEAD)"
+cockpit_health_state="$("$python_bin" - "${PORT:-${ORRERY_WSL_PORT:-8791}}" "$COCKPIT_ROOT" "$cockpit_head" <<'PY' 2>/dev/null || true
+import http.client
+import json
+import re
+import sys
+from contextlib import closing
+from pathlib import Path
+
+port, root, installed = sys.argv[1:]
+try:
+    port = int(port)
+    if not 1 <= port <= 65535:
+        raise ValueError("invalid cockpit port")
+    with closing(http.client.HTTPConnection("127.0.0.1", port, timeout=2)) as connection:
+        connection.request("GET", "/telemetry/health")
+        response = connection.getresponse()
+        health = json.loads(response.read(1 << 16)) if response.status == 200 else None
+    if (isinstance(health, dict) and health.get("backend") == "ok"
+            and re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", health["commit"])
+            ):
+        boot = re.fullmatch(r"\d+-([1-9]\d*)", health["boot"])
+        if boot and int(boot[1]) > 1:
+            if Path(health["root"]).resolve() != Path(root).resolve():
+                print("other")
+            else:
+                print("current" if health["commit"] == installed else "stale")
+except (OSError, KeyError, TypeError, ValueError, RuntimeError, http.client.HTTPException):
+    pass
+PY
+)"
+
 say ""
 say "=============================================================="
 say "  Updated."
@@ -414,8 +446,24 @@ say ""
 say "  The installer has restarted the dashboard. If it is not"
 say "  answering, check it with ${AGENTSTACK_DIR}/bin/agentstack-doctor"
 say "  and start it with ${AGENTSTACK_DIR}/dashboard/agentctl.sh start."
-say "  Restart the cockpit: press Ctrl-C in its window, then run"
-say "  ./scripts/start-cockpit.sh again."
+case "$cockpit_health_state" in
+  stale)
+    note "ORRERY's backend is still running an older version."
+    say "  Wait until all agent work and pending deliveries are safely finished."
+    say "  Mac: Quit and reopen the same ORRERY app when safe."
+    say "  WSL: Close and reopen the same Windows ORRERY app when safe."
+    say "  If started from a terminal, stop its own launcher normally, then run ./scripts/start-cockpit.sh again."
+    say "  If the backend remains running, verify its ownership before stopping it."
+    ;;
+  current) ;;
+  other)
+    note "The responding cockpit belongs to another checkout; its backend was not changed."
+    ;;
+  *)
+    note "Could not verify the running cockpit revision; check its configured port and checkout."
+    say "  If a restart is needed, wait until all agent work and pending deliveries are safely finished."
+    ;;
+esac
 say "=============================================================="
 if [ "$plugin_status" -ne 0 ]; then
   say ""

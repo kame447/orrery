@@ -456,7 +456,7 @@ Run this in the cockpit folder. It brings orrery-telemetry and the cockpit up to
 ./scripts/update.sh
 ```
 
-When it is done, press `Ctrl-C` in the window running the cockpit, and run `./scripts/start-cockpit.sh` again.
+After updating, the script reports if the backend for this checkout is still running an older revision. Wait until all agent work and pending Mail deliveries are safely finished before quitting and reopening the same app, or normally stopping its own terminal launcher and running `./scripts/start-cockpit.sh` again. If a backend remains running, verify its ownership before stopping it. If the revision cannot be verified, check the configured port and checkout. Do not restart a backend belonging to another checkout.
 
 ##### Details
 

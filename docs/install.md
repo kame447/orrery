@@ -456,7 +456,7 @@ cockpit の folder で次を実行します。orrery-telemetry と cockpit が 1
 ./scripts/update.sh
 ```
 
-終わったら、cockpit を動かしている窓で `Ctrl-C` を押し、`./scripts/start-cockpit.sh` をもう一度実行します。
+更新後、同じ checkout の backend が旧版で動いている場合は再起動の案内が出ます。すべてのエージェントの作業と保留中の Mail 配信が安全に終了してから、アプリを終了して開き直すか、端末から起動した場合はその launcher を通常終了し、`./scripts/start-cockpit.sh` をもう一度実行します。backend が残る場合は、停止前にその所有元を確認してください。応答がない場合や版を確認できない場合は、設定した port と checkout を確認してください。別の checkout の backend は再起動の対象ではありません。
 
 ##### 詳しく
 
