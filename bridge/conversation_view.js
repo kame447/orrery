@@ -1118,9 +1118,9 @@
     const screen=document.querySelector('.screen'),toggle=document.getElementById('conversationToggle');
     // Keep one reader per live pane. A split cell is only a display destination.
     // Detached readers retain bounded DOM/cursors; inactive readers do not poll.
-    const views=new Map();let sequence=0,syncing=false,lastCurrent='';
+    const views=new Map();let sequence=0,syncing=false;
     const enabled=()=>{try{return localStorage.getItem(KEY)==='1';}catch(_){return false;}};
-    const current=()=>views.get((getContext()||{}).name)?.view||views.get(lastCurrent)?.view;
+    const current=()=>views.get(getContext()?.name)?.view;
     function paint(){
       const view=current();screen.classList.toggle('conversation-enabled',enabled());
       toggle.hidden=!enabled();toggle.setAttribute('aria-expanded',String(Boolean(view?.opened)));
@@ -1149,15 +1149,13 @@
           if(active&&getOwner(name)===entry.owner){entry.view.reconcile();continue;}
           entry.view.dispose();entry.control.remove();entry.host.classList.remove('conversation-cell');views.delete(name);
         }
-        let selected=String((getContext()||{}).name||'');
-        if(!getOwner(selected))selected=views.has(lastCurrent)?lastCurrent:
-          [...views.values()].find(entry=>entry.view.opened)?.name||[...views.keys()][0]||'';
+        // With no selected pane, park every reader outside the visible split.
+        const selected=getContext()?.name;
         if(active){
           for(const name of new Set([...layout.map(slot=>slot.name),selected].filter(Boolean))){
             const owner=getOwner(name);if(owner&&!views.has(name))create(name,owner);
           }
         }
-        lastCurrent=selected;
         const targets=new Map(layout.map(slot=>[slot.name,slot]));
         if(active&&!layout.length&&views.has(selected))targets.set(selected,{host:screen});
         // Remove old host decorations before any reader enters the shared screen.
