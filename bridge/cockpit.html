@@ -4053,9 +4053,9 @@
       }
     }
   },
-  "inventory_digest": "f6b569bb1094581e26b44277ee7d89b51cd076f8e83f4e45858cdfdf48e601e2",
+  "inventory_digest": "9b9bff800a6502f2f02a8108437e096a46d09bf483322f0af39011ed47c24b3e",
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "d663ca74b3e47d0503765f19c55b835ceb9b5bed630347849f6591a17d2f2aa2",
+  "source_digest": "c9a8465b4a60d4570dbe08813027f02a3594ca7a7829de111c234249b82827bd",
   "surface": "cockpit",
   "version": 1
 }
@@ -5888,10 +5888,13 @@ function currentTerminalFontSize(){
     splitVisible?splitSessions.length:0,
   );
 }
+function paintTerminalFontValue(size){
+  terminalFontRange.setAttribute('aria-valuetext',`${size.toFixed(1)} pixels`);
+  terminalFontValue.textContent=`${size.toFixed(1)} px`;
+}
 function paintTerminalSettings(effectiveSize=currentTerminalFontSize()){
   terminalFontRange.value=String(terminalFontSize);
-  terminalFontRange.setAttribute('aria-valuetext',`${terminalFontSize.toFixed(1)} pixels`);
-  terminalFontValue.textContent=`${terminalFontSize.toFixed(1)} px`;
+  paintTerminalFontValue(terminalFontSize);
   terminalAutoShrinkToggle.checked=terminalAutoShrink;
   const shrunk=effectiveSize!==terminalFontSize;
   terminalFontEffective.textContent=shrunk
@@ -5929,11 +5932,16 @@ function applyTerminalSettings({fit=true}={}){
   // Fit only after every xterm has the new option. queueStageFit deliberately
   // targets visible panes; hidden panes already carry the option and use the
   // same fit path when they become visible. Claimed panes then notify tmux.
-  if(fit&&panes.size)queueStageFit(activeId);
+  if(fit&&panes.size)queueStageFit();
   return effectiveSize;
 }
 terminalFontRange.addEventListener('input',()=>{
-  terminalFontSize=clampTerminalFontSize(terminalFontRange.value);
+  paintTerminalFontValue(clampTerminalFontSize(terminalFontRange.value));
+});
+terminalFontRange.addEventListener('change',()=>{
+  const size=clampTerminalFontSize(terminalFontRange.value);
+  if(size===terminalFontSize)return;
+  terminalFontSize=size;
   persistTerminalSettings();applyTerminalSettings();
 });
 const demoMaskWords=document.getElementById('demoMaskWords');
