@@ -17,6 +17,8 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
 SOURCES = Path(os.environ.get("ORRERY_BRIDGE_SOURCES", ROOT))
 COCKPIT = SOURCES / "cockpit.html"
@@ -258,7 +260,7 @@ def test_a_session_that_is_out_is_never_attached_again_by_the_cockpit():
 
 def test_a_pane_window_polls_only_what_one_terminal_needs():
     html = _html()
-    assert "if(!soloSession){pollUsage(false);" in html
+    assert "if(!soloSession){renderUsagePill();pollUsage(false);" in html
     # the polls themselves: test_cockpit_poll_schedule.py runs them
     assert "const graphPoll=soloSession?null:" in html and "const mailPoll=soloSession?null:" in html
     assert "function kickPolls(){\n  if(soloSession){agentsPoll.kick();return;}" in html
@@ -288,6 +290,13 @@ def test_the_app_grants_pane_windows_the_cockpit_capability_and_commands():
     assert 'const PANE_WINDOW_PREFIX: &str = "pane-";' in lib
     assert "'orrery://pane-window-closed'" in _html()
     assert '"orrery://pane-window-closed"' in lib
+
+
+@pytest.mark.parametrize("command", ["open_pane_window", "open_tour_window"])
+def test_native_window_builders_are_async_tauri_commands(command):
+    # WebView2 can deadlock when a window is built by a synchronous Tauri command.
+    lib = (APP / "src" / "lib.rs").read_text(encoding="utf-8")
+    assert re.search(r"(?m)^#\[tauri::command\]\s+async fn " + command + r"\(", lib)
 
 
 def test_late_pane_events_for_a_session_that_is_out_are_dropped():
@@ -334,15 +343,16 @@ def test_the_apps_closed_event_is_matched_to_this_backend():
     assert 'serde_json::json!({ "session": session, "url": url.as_str() })' in lib
 
 
-def test_selecting_an_outside_session_clears_the_previous_central_terminal():
+@pytest.mark.parametrize('reader', [False, True])
+def test_selecting_an_outside_session_clears_the_previous_central_terminal(reader):
     body = _function_body("jumpToSessionTarget")
     script = r"""
-let activeId='main-pane',pendingJump='old-jump',splitVisible=true;
+let activeId='main-pane',pendingJump='old-jump',pendingJumpReader=false,splitVisible=true;
 let terminalLessAgent=null,paneWindowSelection=null;
 const paneWindows=new Map([['WindowAgent',{kind:'window'}]]);
 const scrName={closest(){return null;}},scrPath={},scrBadge={},promptTarget={textContent:'MainAgent'},promptAva={hidden:false};
 const stageEmpty={style:{display:'none'}};
-let visible=['main-pane'],blurred=false,focused=[];
+let visible=['main-pane'],blurred=false,focused=[],messages=[];
 const document={activeElement:{blur(){blurred=true;}}};
 function blurTerminalFocus(){blurred=true;}
 function renderStage(){visible=activeId?[activeId]:[];}
@@ -351,18 +361,21 @@ function paintPaneHeading(){}
 function refreshHeaderStats(){}
 function refreshComposerVocabulary(){}
 function focusPaneWindow(name){focused.push(name);}
+function postPaneMessage(message){messages.push(message);}
 function resolveJump(){throw Error('must not attach a session in another window');}
 FUNCTION
-jumpToSessionTarget('WindowAgent');
+jumpToSessionTarget('WindowAgent',{reader:READER});
 console.log(JSON.stringify({activeId,pendingJump,splitVisible,visible,blurred,focused,
-  prompt:promptTarget.textContent,avatarHidden:promptAva.hidden}));
-""".replace("FUNCTION", "function jumpToSessionTarget(name,{forceFocus=false}={}){\n" + body + "\n}")
+  prompt:promptTarget.textContent,avatarHidden:promptAva.hidden,messages}));
+""".replace("FUNCTION", "function jumpToSessionTarget(name,{forceFocus=false,reader=false}={}){\n" + body + "\n}")
+    script = script.replace("READER", json.dumps(reader))
     result = subprocess.run(["node", "-e", script], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == {
         "activeId": None, "pendingJump": None, "splitVisible": False,
         "visible": [], "blurred": True, "focused": ["WindowAgent"],
         "prompt": "—", "avatarHidden": True,
+        "messages": [{"type": "open-reader", "session": "WindowAgent"}] if reader else [],
     }
 
 
@@ -371,7 +384,7 @@ def test_another_sessions_reset_does_not_fill_a_selected_outside_sessions_stage(
     script = r"""
 let activeId=null,pendingJump=null,splitVisible=false,focusedSplitSession=null;
 let paneWindowSelection='WindowAgent';
-const requestedSessions=new Set(),attachedSessions=new Set();
+const requestedSessions=new Set(),attachedSessions=new Set(),closedByBackend=new Set();
 const focused=[];
 function activeSession(){return null;}
 function closeSessionPanes(){}
@@ -416,7 +429,7 @@ let activeId=null,pendingJump=null,splitVisible=false,focusedSplitSession=null;
 let paneWindowSelection='WindowAgent';
 const paneWindows=new Map([['WindowAgent',{}],['OtherWindow',{}]]);
 const availableSessions=new Set(['MainAgent']),manualDetached=new Set();
-const requestedSessions=new Set(),attachedSessions=new Set();
+const requestedSessions=new Set(),attachedSessions=new Set(),closedByBackend=new Set();
 const stageEmpty={style:{display:'none'}},focused=[];
 const panes=new Map(),sessionGroups=new Map(),splitSessions=[];
 const paneCountEl=null,sessChip=null,tabsEmpty={style:{}};

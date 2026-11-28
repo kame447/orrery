@@ -20,7 +20,7 @@ app は `:8791/cockpit.html` を確認し、不達なら checkout の backend �
 
 確認:
 
-1. `bridge/.venv/bin/python` が存在し実行可能か
+1. `bridge/.venv/bin/python --version` が Python 3.11 以上を示すか
 2. `bridge/orrery_backend.py` が存在するか
 3. `~/.orrery/config.json` の `orrery_root` が実際の checkout を指すか
 4. env override を使う場合は `AGENTSTACK_ORRERY_ROOT` または個別 path が app process に渡っているか
@@ -45,7 +45,7 @@ bridge/.venv/bin/python -m pip install -r bridge/requirements.txt
 bridge/.venv/bin/python -c "import aiohttp, websockets, PIL, pyte"
 ```
 
-Python 3.10 未満では union type syntax を解釈できません。
+backend は Python 3.11 以上が必要です。`bridge/.venv/bin/python --version` で確認してください。古い場合は [Python 環境を作り直します](install.md#repository-と-python-環境)。
 
 ## `pyte` が見つからない
 
@@ -110,9 +110,36 @@ catalog の fallback が見えても offline spawn はできません。spawn PO
 
 現行 build は介入待ちの node を常に最前面へ描きます。古い build で再現する場合は ORRERY Telemetry を更新してください。更新前、または NETWORK で判断しにくい場合は `DECK` に切り替えます。質問待ちは card 右上の `?`、承認待ちは赤い外枠と `APPROVAL` で確認できます。実画面は[使い方の「介入待ちの見分け方」](usage.md#介入待ちの見分け方)を参照してください。
 
+## cockpit の動きが出ない
+
+cockpit の動きが出ないときは、ブラウザーを動かしている OS の設定を確認します。ブラウザーは OS の「動きを減らす」設定を `prefers-reduced-motion` で伝えます。cockpit はこの設定に従い、NETWORK の node 移動を即時にし、作業中を示す輪の回転や Mail の移動アニメーションを止めます。表示上の動きがなくても、agent や Mail の処理が停止したとは限りません。
+
+たとえば、WSL の cockpit をリモート デスクトップの Windows ブラウザーで開いたとき、接続先の Windows で **アニメーション効果** がオフになっていて、これらの動きが出ないことがありました。
+
+- Windows は **設定 → アクセシビリティ → 視覚効果 → アニメーション効果** をオンにします。リモート デスクトップを使っている場合は、接続の設定でもアニメーションが有効か確認します。[Microsoft の設定ガイド](https://support.microsoft.com/ja-jp/accessibility/windows/magnifier/appendix-d-set-up-your-device-for-screen-comfort)
+- macOS は **システム設定 → アクセシビリティ → ディスプレイ** で **視差効果を減らす** をオフにします。macOS 27 では、このスイッチは **アクセシビリティ → 視差効果** にあります。[Apple の設定ガイド](https://support.apple.com/ja-jp/guide/mac-help/mchlc03f57a1/27/mac/27)
+
+動きを表示したい場合だけ設定を変え、ブラウザーで cockpit を読み直します。動きを減らす設定が必要な場合は、そのまま利用できます。
+
+## 起動時に `ORRERY instruction migration: N notices` と出る
+
+Claude や Codex の指示ファイルにある ORRERY 管理ブロックについての知らせです。`agentstack-doctor` で対象の path と理由を確認します。非対話 shell の installer では、事前承認のない managed setup が見送られることがあります。
+
+管理ブロックが古い場合は、知らせや doctor が案内した利用者・HOME・対象 path のまま `agentstack-claude-setup` または `agentstack-codex-setup` の `--plan` で計画を確認します。既存ファイルの変更には正規の承認が必要です。変更時は元の全文の backup を保持します。詳細は [Telemetry の指示移行ガイド](https://github.com/kame447/orrery-telemetry/blob/0685370fc2acebf9ebac8ea140f2dc94410d9de7/docs/instruction-migration.md#consent) を参照してください。
+
+`INSTRUCTION_PATH_UNSAFE` の場合は、所有者、group / other の書込権限、symlink の解決先などを確認します。この fork は Windows drive (DrvFs) の合成権限も自動で例外扱いしません。権限チェックを迂回せず、既存の指示と backup を保全してください。知らせだけで Mail の切替や project key の変更を行う必要はありません。
+
+## Cua Driver の利用状況送信・自動更新確認
+
+Telemetry の fork PR #136 を含む版では、ORRERY の screen relay が起動する Cua Driver に `CUA_DRIVER_RS_TELEMETRY_ENABLED=false` と `CUA_DRIVER_RS_UPDATE_CHECK=false` を渡します。既に動いている Windows daemon や、別の方法で起動する Cua Driver の設定を変えるものではありません。
+
+Windows daemon を利用する場合は、その daemon を実行する Windows user の PowerShell で `cua-driver.exe telemetry status` と `cua-driver.exe config get update_check_enabled` を確認します。永続設定が必要なら Cua Driver 側の操作ガイドに従って利用者が設定します。起動時の自動更新確認が無効なら、対応版・署名・ハッシュの確認は手動で行います。
+
+[Telemetry の Computer use 設定](https://github.com/kame447/orrery-telemetry/blob/0685370fc2acebf9ebac8ea140f2dc94410d9de7/docs/computer-use.md) · [Cua Driver 0.55.0 の操作ガイド](https://github.com/trycua/cua/blob/cua-driver-rs-v0.55.0/docs/content/docs/cua-driver/guides/operate.mdx)
+
 ## mail が表示されない
 
-ORRERY は `AGENTSTACK_MAIL_DB` を自動では読みません。
+legacy mode で `scripts/start-cockpit.sh` を使う場合は、`ORRERY_MAIL_DB`、shell の `AGENTSTACK_MAIL_DB`、Telemetry の `env.sh` の順で DB を選びます。backend を直接起動する場合は `ORRERY_MAIL_DB` または共有設定の `mail_db` を明示します。[DB の優先順位](configuration.md#orrery-mail-db) を参照してください。fresh mode では保護された dashboard API を使い、legacy DB には fallback しません。以下の DB 確認は legacy mode が対象です。
 
 ```bash
 export ORRERY_MAIL_DB=/absolute/path/to/storage.sqlite3
@@ -207,15 +234,7 @@ ORRERY の Claim は tmux window size を実際に変更します。Ghostty な�
 
 ## terminal が空、または xterm が読み込まれない
 
-現行 frontend は `xterm.js 5.5.0` と `addon-fit 0.10.0` を CDN から読みます。ネットワークや Content Security Policy が jsDelivr / Google Fonts を拒否すると、font は fallback し、xterm script がなければ terminal UI は成立しません。
-
-確認:
-
-- browser / WebView の developer console
-- CDN への DNS / TLS 到達
-- proxy / firewall / CSP
-
-現行配布は完全 self-contained offline bundle ではありません。
+同梱の xterm と addon は cockpit backend から配信されます。ブラウザーの開発者ツールで `/vendor/xterm-5.5.0/xterm.js` と `/vendor/` 配下の個別の addon URL が読み込めているか確かめます。失敗する場合は、起動中の backend と checkout が同じ版か、同梱の asset がそろっているか確認します。Google Fonts に接続できない場合はフォントだけが切り替わります。
 
 ## WebSocket が切断を繰り返す
 
@@ -244,14 +263,14 @@ protocol の pane `split` / `close` は `orrery-` prefix の管理 session だ�
 
 ## prompt が送信されない
 
-composer は bracketed paste の250 ms 後に carriage return を送ります。
+composer は bracketed paste の250 ms 後に、送り先の pane・session・接続が変わっていないことを確認して carriage return を送ります。`send cancelled` が表示された場合は、入力が既に端末に貼られている可能性があるため、再送する前に対象の端末を確認してください。
 
 - active pane が正しいか
 - IME composition 中ではないか
 - pane が agent TUI ではなく shell prompt になっていないか
 - WebSocket が connected か
 
-`Shift+Enter` は改行、`Esc` は interrupt です。画像 paste は file upload ではなく literal `Ctrl+V` を TUI へ転送します。
+`Shift+Enter` は改行、`Esc` は interrupt です。macOS の画像 paste は literal `Ctrl+V` を TUI へ転送します。WSL では Windows の clipboard にアクセスできる場合、画像を PNG として保存し、そのパスを composer に入れます。[Prompt composer](usage.md#prompt-composer) を参照してください。
 
 ## 履歴が残る／消えない
 

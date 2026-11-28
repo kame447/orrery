@@ -22,7 +22,7 @@ from conversation_images import hermes_content
 from conversation_steps import claude_call, claude_result, mark_step_boundary
 
 from conversation_history import (HistoryUnavailable, MAX_SCAN, MAX_TEXT, PAGE_SIZE,
-    open_bound_transcript, assert_transcript_identity, read_codex_page, recorded_model)
+    open_bound_transcript, assert_transcript_identity, conversation_binding, read_codex_page, recorded_model)
 
 try:
     import zstandard as zstd
@@ -84,6 +84,11 @@ def is_claude_summary(text, item):
     human = isinstance(origin, dict) and origin.get('kind') == 'human'
     return item.get('isCompactSummary') is True or ('isCompactSummary' not in item and
         not human and isinstance(text, str) and text.lstrip().startswith(CLAUDE_COMPACTION_PREFIX))
+
+
+def compacted_context(ts):
+    return dict(kind='system', role='system', text='Context compacted', ts=ts,
+                system_detail='Earlier context was summarized.')
 
 
 def claude_pasted_text(text):
@@ -196,7 +201,10 @@ def normalize(item,p,sid):
         if item.get('surfaceOp','append')!='append':return []
         kind=item.get('type');data=item.get('data');ts=epoch(item.get('time'),1000)
         if not isinstance(data,dict):return []
-        if kind=='user/message' and isinstance(data.get('source'),dict) and data['source'].get('kind')=='user':
+        if (kind=='compaction/end' and isinstance(data.get('compactionId'),str)
+                and data['compactionId'] and 'error' not in data):
+            add(0,compacted_context(ts))
+        elif kind=='user/message' and isinstance(data.get('source'),dict) and data['source'].get('kind')=='user':
             content=data.get('content')
             images=isinstance(content,list) and any(isinstance(b,dict) and b.get('type')=='image' for b in content[:MAX_BLOCKS])
             add(0,text_event(blocks_text(content) or ('[image attachment]' if images else ''),'user',ts))
@@ -207,6 +215,8 @@ def normalize(item,p,sid):
             add(0,tool_event('Tool result',ts,result=True,failed=bool(data['message'].get('isError'))))
     elif p=='hermes':
         ts=epoch(item.get('timestamp'));role=item.get('role')
+        if item.get('_compressed_summary')==1:
+            return [(0,compacted_context(ts))]
         if role=='user' and item.get('display_kind') in HERMES_SYSTEM_KINDS and isinstance(item.get('content'),str):
             text=item['content']
             add(0,dict(kind='system',role='system',text='System notice',ts=ts,
@@ -279,8 +289,9 @@ class Reader:
         self.row,self.stream,self.path=row,stream,row['transcript_path']
         self.provider=provider(row);self.sid=row.get('history_session_id');self.cwd=None;self.db=None;self.frames={};self.data_start=(0,0,0);self.last_fingerprint=None
         st=os.fstat(stream.fileno())
+        binding=conversation_binding(row) if self.provider=='claude' else row.get('history_receipt_ts')
         self.file_id=hashlib.sha256(json.dumps([self.path,st.st_dev,st.st_ino,self.sid,
-             row.get('history_receipt_ts'),self.provider]).encode()).hexdigest()[:24]
+             binding,self.provider]).encode()).hexdigest()[:24]
         self.size=st.st_size
         if self.provider=='codex':return
         if not isinstance(self.sid,str) or not self.sid or len(self.sid)>256:raise HistoryUnavailable('invalid_binding')
@@ -411,9 +422,14 @@ class Reader:
                 if self.db.execute('SELECT type FROM sqlite_master WHERE name=?',(table,)).fetchone()!=('table',):
                     raise HistoryUnavailable('history_format_unsupported')
             self.db.execute('BEGIN')
-            meta=self.db.execute('SELECT cwd FROM sessions WHERE id=? AND source=?',(self.sid,'cli')).fetchone()
+            columns={row[1] for row in self.db.execute('PRAGMA table_info(sessions)')}
+            if {'ended_at','end_reason'}<=columns:
+                meta=self.db.execute('''SELECT cwd, CASE WHEN end_reason='compression' THEN ended_at END
+                    FROM sessions WHERE id=? AND source=?''',(self.sid,'cli')).fetchone()
+            else:
+                meta=self.db.execute('SELECT cwd, NULL FROM sessions WHERE id=? AND source=?',(self.sid,'cli')).fetchone()
             if not meta:raise HistoryUnavailable('history_unconfirmed')
-            self.cwd=meta[0];self.assert_identity()
+            self.cwd=meta[0];self.compression_end=meta[1];self.assert_identity()
         except BaseException:
             self.db.close();self.db=None;raise
 
@@ -597,21 +613,32 @@ class Reader:
 
         The one scan behind both snapshot() and session_fingerprint(): the same
         SQL, the same MAX_SCAN byte budget and 200-row cap, the same model_only
-        exclusion. Rows past the budget are never read, so a session with very
+        exclusion except for a redacted compaction marker. Rows past the
+        budget are never read, so a session with very
         large rows costs what the snapshot costs.
         """
         self.db.row_factory=sqlite3.Row
-        rows=self.db.execute('''SELECT id,role,
-            CASE WHEN substr(CAST(content AS BLOB),1,6)=X'006a736f6e3a'
+        rows=self.db.execute('''SELECT id,role,timestamp,COALESCE(_compressed_summary,0) AS _compressed_summary,
+            CASE WHEN _compressed_summary=1 THEN NULL
+                WHEN substr(CAST(content AS BLOB),1,6)=X'006a736f6e3a'
                 THEN CAST(substr(CAST(content AS BLOB),1,65537) AS TEXT)
                 ELSE substr(content,1,65537) END AS content,
-            substr(tool_calls,1,1048576) AS tool_calls,tool_call_id,tool_name,timestamp,display_kind,display_metadata
-            FROM messages WHERE session_id=? AND active=1 AND role IN ('user','assistant','tool')
-            AND COALESCE(display_kind,'')!='hidden' AND COALESCE(_compressed_summary,0)=0
-            AND CASE WHEN display_metadata IS NULL THEN 1 WHEN json_valid(display_metadata)
-                THEN COALESCE(json_extract(display_metadata,'$.model_only'),0)=0 ELSE 0 END
+            CASE WHEN _compressed_summary=1 THEN NULL ELSE substr(tool_calls,1,1048576) END AS tool_calls,
+            tool_call_id,tool_name,display_kind,
+            CASE WHEN _compressed_summary=1 THEN NULL ELSE display_metadata END AS display_metadata
+            FROM messages WHERE session_id=? AND active=1 AND (
+                _compressed_summary=1 OR (
+                    COALESCE(_compressed_summary,0)=0 AND role IN ('user','assistant','tool')
+                    AND COALESCE(display_kind,'')!='hidden'
+                    AND CASE WHEN display_metadata IS NULL THEN 1 WHEN json_valid(display_metadata)
+                        THEN COALESCE(json_extract(display_metadata,'$.model_only'),0)=0 ELSE 0 END
+                )
+            )
             ORDER BY id DESC LIMIT 201''',(self.sid,))
-        visible=[];budget=0;limited=False;boundary=None
+        # A rotated parent can still be the exact bound segment. Its own end
+        # reason is enough to show the marker without reading its successor.
+        visible=[dict(id='compaction-end',timestamp=self.compression_end,_compressed_summary=1)] if self.compression_end is not None else []
+        budget=0;limited=False;boundary=None
         for row in rows:
             item=dict(row);size=len(json.dumps(item).encode())
             if budget+size>MAX_SCAN or len(visible)>=200:limited=True;boundary=item['id'];break

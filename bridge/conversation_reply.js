@@ -1,6 +1,28 @@
 /* A reference stays browser-local beside the original composer until Send. */
 (function(root){
   'use strict';
+  function parse(text){
+    if(typeof text!=='string'||!text.startsWith('Reference: '))return null;
+    const lines=text.replace(/\r\n?/g,'\n').split('\n');
+    // Mobile sends one line and escapes the quoted selection as a JSON string.
+    const oneLine=lines.length===1&&/^Reference: (.+?) \| Recorded message: (\S+) \| Quote: ("(?:[^"\\\x00-\x1f]|\\.)*") \| Reply: (.*)$/.exec(lines[0]);
+    const fields=(oneLine?oneLine[1]:lines[0].slice(11)).split(' · '),[agent,role,ts]=fields;
+    const id=oneLine?oneLine[2]:/^Recorded message: (\S+)$/.exec(lines[1]||'')?.[1];
+    if(!id||!agent||agent.trim()!==agent||!/^\S+$/.test(role||'')||fields.length<2||fields.length>3)return null;
+    if(ts!==undefined&&(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(ts)||!Number.isFinite(Date.parse(ts))))return null;
+    let quote,reply;
+    if(oneLine){
+      try{quote=JSON.parse(oneLine[3]);}catch(_){return null;}
+      reply=oneLine[4];
+    }else{
+      let end=2;
+      while(lines[end]?.startsWith('> '))end++;
+      if(end===2||lines[end]!=='')return null;
+      quote=lines.slice(2,end).map(line=>line.slice(2)).join('\n');
+      reply=lines.slice(end+1).join('\n');
+    }
+    return quote.trim()&&reply.trim()?{agent,ts,id,quote,reply}:null;
+  }
   function mount({host,input,getTarget,onError=()=>{}}){
     let reference=null,target=null;
     const screen=host.closest('.screen');
@@ -22,19 +44,24 @@
       host.classList.remove('has-conversation-reference');size();
     }
     remove.onclick=()=>{clear();input.focus({preventScroll:true});};
-    function add(value){
-      const selected=getTarget();
+    function add(value,beforeFocus){
+      const selected=getTarget(value.agent);
       if(!selected||selected.session!==value.agent||!value.isCurrent()){
         onError('Reference unavailable — select its agent and try again.');return false;
       }
       if(typeof value.text!=='string'||!value.text.trim()||value.text.length>8192){
         onError('Select up to 8,192 characters to reference.');return false;
       }
+      beforeFocus?.();
+      // Activation can replace a pane or its transport; never stage a reference
+      // against a different composer than the one validated above.
+      if(!check(value,selected,getTarget()))return false;
       reference=value;target=selected;
       const at=new Date(value.ts),time=Number.isFinite(at.getTime())?at.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'';
       label.textContent=[value.agent,value.kind==='file'?'File reference':'Message reference',time].filter(Boolean).join(' · ');
       quote.textContent=value.text;quote.title=value.text;card.hidden=false;
       host.classList.add('has-conversation-reference');size();input.focus({preventScroll:true});
+      input.setSelectionRange(input.value.length,input.value.length);
       return true;
     }
     function check(value,pinned,selected){
@@ -55,5 +82,5 @@
     return Object.freeze({add,guard,compose,clear,get hasReference(){return Boolean(reference);},
       dispose(){observer.disconnect();clear();card.remove();}});
   }
-  root.OrreryConversationReply=Object.freeze({mount});
+  root.OrreryConversationReply=Object.freeze({mount,parse});
 })(window);

@@ -31,10 +31,23 @@ check() { # $1 = name; rest = command that must succeed
   if "$@"; then pass "$name"; else fail "$name"; fi
 }
 
-# A repository of this checkout's committed state to clone from (file:// so
-# partial clone and sparse checkout behave as with GitHub).
-BRANCH="$(git -C "$ROOT" rev-parse --abbrev-ref HEAD)"
-git clone --quiet --bare "$ROOT" "$WORK/orrery.git"
+# Seed the remotes from the installer scripts in the working tree, including
+# uncommitted fixes. Keep the fixture small so repeated file:// clones still
+# exercise Git fetch and checkout without copying the project assets and history.
+BRANCH=installer-fixture
+FIXTURE="$WORK/cockpit-source"
+mkdir -p "$FIXTURE/scripts" &&
+  cp -p "$ROOT/README.md" "$FIXTURE/" &&
+  cp -p "$ROOT"/scripts/{get,setup,start-cockpit,update}.sh "$FIXTURE/scripts/" &&
+  git -C "$FIXTURE" init --quiet --initial-branch="$BRANCH" &&
+  git -C "$FIXTURE" add README.md scripts &&
+  git -C "$FIXTURE" -c user.name=t -c user.email=t@t -c core.hooksPath=/dev/null \
+    -c commit.gpgSign=false commit --quiet -m "Cockpit installer fixture" &&
+  git clone --quiet --bare "$FIXTURE" "$WORK/orrery.git" || {
+    printf 'Could not create the cockpit installer fixture.\n' >&2
+    exit 1
+  }
+ROOT="$FIXTURE"
 COCKPIT_URL="file://$WORK/orrery.git"
 
 fresh_home() { # $1 = name; prints the new HOME
@@ -82,11 +95,21 @@ check "foreign origin: nothing fetched" test ! -e "$H/orrery/.git/FETCH_HEAD"
 # ---------------------------------------------------------------- read-only entry
 H="$(fresh_home readonly)"
 before="$(cd "$H" && find . | sort)"
-out="$(run_in "$H" ORRERY_REPO_URL="$COCKPIT_URL" ORRERY_REF="$BRANCH" bash "$ROOT/scripts/get.sh" --check 2>&1)"; status=$?
+out="$(run_in "$H" ORRERY_REPO_URL="$COCKPIT_URL" ORRERY_REF="$BRANCH" \
+  AGENTSTACK_CLAUDE_JSON="$H/user-mcp.json" AGENTSTACK_CLAUDE_SETTINGS="$H/user-settings.json" \
+  CODEX_HOME="$H/codex-home" CLAUDE_CONFIG_DIR="$H/claude-home" \
+  bash "$ROOT/scripts/get.sh" --check 2>&1)"; status=$?
 after="$(cd "$H" && find . | sort)"
 check "--check through get.sh: exits 0" test "$status" -eq 0
 check "--check through get.sh: HOME unchanged (no checkout, no state)" test "$before" = "$after"
 check "--check through get.sh: shows the plan" sh -c 'printf "%s" "$1" | grep -q "change these 4 things"' _ "$out"
+check "--check lists all four actual provider files" sh -c '
+  for file in "1. $2/user-mcp.json" "2. $2/user-settings.json" \
+              "3. $2/codex-home/AGENTS.md" "4. $2/claude-home/CLAUDE.md"; do
+    printf "%s" "$1" | grep -Fq "$file" || exit 1
+  done
+  ! printf "%s" "$1" | grep -Fq "4. $2/orrery-work/CLAUDE.md"
+' _ "$out" "$H"
 check "--check through get.sh: says where it would download" sh -c 'printf "%s" "$1" | grep -q "would be downloaded to"' _ "$out"
 
 # ---------------------------------------------------------------- old checkout -> remote setup
@@ -187,6 +210,7 @@ if [ "${1:-}" = "--dry-run" ] || [ "${2:-}" = "--dry-run" ]; then
   saved="$(sed -n 's/^export AGENTSTACK_CODEX_BIN=//p' "$dir/env.sh" 2>/dev/null | head -n 1)"
   "${AGENTSTACK_CODEX_BIN:-${saved:-codex}}" --version >/dev/null 2>&1 || true
   echo "Tier1 settings safe-merge dry-run: (stub)"
+  printf "preview bytecode suppression: %s\n" "${PYTHONDONTWRITEBYTECODE:-0}"
   exit "${STUB_PREVIEW_EXIT:-0}"
 fi
 # Like the real installer: settings it reads back from env.sh itself, and a
@@ -641,6 +665,7 @@ after="$(cd "$H" && find . -not -path './orrery/*' -not -path './tmp*' | sort)"
 check "dry-run: exits 0" test "$status" -eq 0
 check "dry-run: HOME unchanged (installer's Codex probe isolated)" test "$before" = "$after"
 check "dry-run: shows the installer's preview" sh -c 'printf "%s" "$1" | grep -q "safe-merge dry-run"' _ "$out"
+check "dry-run: preview suppresses Python bytecode writes" sh -c 'printf "%s" "$1" | grep -q "preview bytecode suppression: 1"' _ "$out"
 out="$(PATH="$WORK/stubbin:$PATH" setup_in "$H" STUB_PREVIEW_EXIT=1 bash "$H/orrery/scripts/setup.sh" --dry-run 2>&1)"; status=$?
 check "dry-run: a failed preview fails" test "$status" -ne 0
 check "dry-run: says the preview failed" sh -c 'printf "%s" "$1" | grep -q "preview failed"' _ "$out"

@@ -20,7 +20,7 @@ The app checks `:8791/cockpit.html`. If it is unreachable, the app starts the ba
 
 Check:
 
-1. `bridge/.venv/bin/python` exists and is executable
+1. `bridge/.venv/bin/python --version` reports Python 3.11 or later
 2. `bridge/orrery_backend.py` exists
 3. `orrery_root` in `~/.orrery/config.json` points to the actual checkout
 4. If you use an env override, `AGENTSTACK_ORRERY_ROOT` or the individual paths are passed to the app process
@@ -45,7 +45,7 @@ bridge/.venv/bin/python -m pip install -r bridge/requirements.txt
 bridge/.venv/bin/python -c "import aiohttp, websockets, PIL, pyte"
 ```
 
-Python older than 3.10 cannot parse the union type syntax.
+The backend requires Python 3.11 or later. Check `bridge/.venv/bin/python --version`. If it reports an older version, [recreate the Python environment](install.md#repository-and-python-environment).
 
 ## `pyte` is not found
 
@@ -110,9 +110,36 @@ In older ORRERY Telemetry builds, depending on the NETWORK layout, the `?` for a
 
 The current build always draws nodes that need a human on top. If you can reproduce this on an older build, update ORRERY Telemetry. Before updating, or if NETWORK is hard to read, switch to `DECK`. A waiting question shows as a `?` at the top right of the card, and a waiting approval shows as a red outline and `APPROVAL`. For real screenshots, see [Usage, "Spotting agents that need you"](usage.md#spotting-agents-that-need-you).
 
+## Cockpit animations are missing
+
+If cockpit animations are missing, check the settings on the OS running your browser. The browser reports the OS setting through `prefers-reduced-motion`. Cockpit respects that setting by moving NETWORK nodes immediately, disabling the spinning working ring and suppressing Mail travel animations. Missing animations do not by themselves mean that agents or Mail have stopped.
+
+For example, these animations were missing in a Windows browser displaying the WSL cockpit over Remote Desktop. **Animation effects** was off in the remote Windows session.
+
+- On Windows, turn on **Settings → Accessibility → Visual effects → Animation effects**. If you use Remote Desktop, also check that animations are enabled in the connection settings. [Microsoft settings guide](https://support.microsoft.com/en-us/accessibility/windows/make-it-easier-to-focus-on-tasks)
+- On macOS, go to **System Settings → Accessibility → Display** and turn off **Reduce motion**. On macOS 27, the switch is under **Accessibility → Motion**. [Apple settings guide](https://support.apple.com/en-gb/guide/mac-help/mchlc03f57a1/27/mac/27)
+
+Change the setting only if you want animations, then reload cockpit. You can keep reduced motion enabled if you need it.
+
+## `ORRERY instruction migration: N notices` appears at startup
+
+These notices concern ORRERY-managed blocks in Claude or Codex instruction files. Run `agentstack-doctor` to identify the paths and reasons. A non-interactive installer may skip managed setup without prior consent.
+
+If a managed block is outdated, keep the user, HOME and target path shown in the notice or doctor output, and preview the plan using `--plan` with `agentstack-claude-setup` or `agentstack-codex-setup`. Changes to existing files require the documented consent; full-file backups are retained when changes are made. See the [Telemetry instruction migration guide](https://github.com/kame447/orrery-telemetry/blob/0685370fc2acebf9ebac8ea140f2dc94410d9de7/docs/instruction-migration.en.md#consent).
+
+For `INSTRUCTION_PATH_UNSAFE`, check ownership, group/other write permissions and symlink destinations. This fork does not automatically exempt synthetic permissions on Windows drives (DrvFs). Do not bypass permission checks; preserve existing instructions and backups. These notices alone do not require switching Mail or changing the project key.
+
+## Cua Driver usage telemetry and automatic update checks
+
+In Telemetry versions containing fork PR #136, the ORRERY screen relay launches Cua Driver with `CUA_DRIVER_RS_TELEMETRY_ENABLED=false` and `CUA_DRIVER_RS_UPDATE_CHECK=false`. This does not change a running Windows daemon or the settings of Cua Driver launched separately.
+
+For a Windows daemon, check `cua-driver.exe telemetry status` and `cua-driver.exe config get update_check_enabled` in PowerShell under the Windows account that runs that daemon. If persistent preferences are needed, the operator sets them using the Cua Driver operation guide. With automatic update checks disabled, check the supported version, signature and hash manually.
+
+[Telemetry Computer use setup (Japanese)](https://github.com/kame447/orrery-telemetry/blob/0685370fc2acebf9ebac8ea140f2dc94410d9de7/docs/computer-use.md) · [Cua Driver 0.55.0 operation guide](https://github.com/trycua/cua/blob/cua-driver-rs-v0.55.0/docs/content/docs/cua-driver/guides/operate.mdx)
+
 ## Mail is not shown
 
-ORRERY does not read `AGENTSTACK_MAIL_DB` automatically.
+In legacy mode, `scripts/start-cockpit.sh` selects the database from `ORRERY_MAIL_DB`, the shell's `AGENTSTACK_MAIL_DB`, then Telemetry's `env.sh`. For a direct backend launch, set `ORRERY_MAIL_DB` or the shared `mail_db` setting to select a custom database. See [Mail DB precedence](configuration.md#orrery-mail-db). Fresh mode uses the protected dashboard API and does not fall back to the legacy database. The database checks below apply to legacy mode.
 
 ```bash
 export ORRERY_MAIL_DB=/absolute/path/to/storage.sqlite3
@@ -207,15 +234,7 @@ A tracked snapshot whose restore failed is not consumed until the restore succee
 
 ## The terminal is empty, or xterm does not load
 
-The current frontend loads `xterm.js 5.5.0` and `addon-fit 0.10.0` from a CDN. If the network or the Content Security Policy rejects jsDelivr / Google Fonts, fonts fall back, and without the xterm script the terminal UI cannot work.
-
-Check:
-
-- The browser / WebView developer console
-- DNS / TLS reachability to the CDN
-- proxy / firewall / CSP
-
-The current distribution is not a fully self-contained offline bundle.
+The cockpit backend serves bundled xterm and its addons. In the browser developer tools, check that `/vendor/xterm-5.5.0/xterm.js` and the individual addon URLs under `/vendor/` load. If they fail, check that the running backend matches your checkout and that the bundled assets are present. A failure to reach Google Fonts only changes the font.
 
 ## The WebSocket keeps disconnecting
 
@@ -244,14 +263,14 @@ There is no override for a binary at another path. If an interactive client is a
 
 ## The prompt is not sent
 
-The composer sends a carriage return 250 ms after the bracketed paste.
+The composer sends a carriage return 250 ms after the bracketed paste only if the destination pane, session, and connection still match. If you see `send cancelled`, inspect the intended terminal before retrying: the input may already have been pasted.
 
 - The active pane is the right one
 - You are not in the middle of IME composition
 - The pane is not at a shell prompt instead of the agent TUI
 - The WebSocket is connected
 
-`Shift+Enter` is a newline and `Esc` is an interrupt. Pasting an image does not upload a file; it forwards a literal `Ctrl+V` to the TUI.
+`Shift+Enter` is a newline and `Esc` is an interrupt. On macOS, pasting an image forwards a literal `Ctrl+V` to the TUI. On WSL, if the Windows clipboard is accessible, it saves the image as a PNG and inserts its path into the composer. See [Prompt composer](usage.md#prompt-composer).
 
 ## History remains / does not disappear
 

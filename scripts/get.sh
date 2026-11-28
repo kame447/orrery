@@ -42,6 +42,7 @@ main() {
       --check | --dry-run) read_only=true ;;
     esac
   done
+  [ "$read_only" != true ] || export PYTHONDONTWRITEBYTECODE=1
 
   say "ORRERY one-command install"
   [ -z "$override_url" ] || say "  note  test override: ORRERY_REPO_URL=${override_url}"

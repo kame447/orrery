@@ -16,10 +16,12 @@ const byId=new Map(),groupsByName=new Map(),rowsByKey=new Map();
 const requestedAgents=new Map();
 const peerAvatars=new Map();
 const motion=matchMedia('(prefers-reduced-motion: reduce)');
-let activeFilter='',waitingOnly=false,filterRequest=0;
+let activeFilter='',waitingOnly=false,filterRequest=0,clearedAgent='';
 let drawer=null,drawerMotion=null,drawerMotionTimer=0,replyRequest=0;
+let paintedBody=null,observingPaths=false;
 let hoveredRoute=null,focusedRoute=null;
-let manualGraphOpen=false;
+const GRAPH_KEY='oc-mini-mail-graph';
+let manualGraphOpen=readGraphPreference();
 const VIEW_KEY='oc-mail-view';
 let timeline=true;
 try{timeline=localStorage.getItem(VIEW_KEY)!=='recipient';}catch(_){/* preference unavailable */}
@@ -52,6 +54,7 @@ const icons={
 function icon(name){
   return '<svg class="mail-icon" viewBox="0 0 24 24" aria-hidden="true">'+icons[name]+'</svg>';
 }
+
 function control(action,label,symbol){
   return '<button class="rail-icon" type="button" data-action="'+action+'" title="'+label+'" aria-label="'+label+'">'+icon(symbol)+'</button>';
 }
@@ -285,7 +288,23 @@ function setFilterOpen(open,restoreFocus=false){
     ],{duration:motion.matches?90:160,easing:'ease-out'});
   }else if(restoreFocus)filterButton.focus({preventScroll:true});
 }
+
+const filterSummary=document.createElement('div');
+filterSummary.className='mail-filter-summary';
+filterSummary.hidden=true;
+filterSummary.innerHTML='<button type="button" class="mail-clear-filter"><span></span>'+icon('close')+'</button>';
+const clearFilter=filterSummary.querySelector('button');
+const filterLabel=clearFilter.querySelector('span');
+mailEl.before(filterSummary);
 filterButton.addEventListener('click',()=>setFilterOpen(filterEl.hidden));
+clearFilter.addEventListener('click',()=>{
+  ++filterRequest;
+  clearedAgent=activeFilter;
+  activeFilter='';
+  waitingOnly=false;
+  setFilterOpen(false,true);
+  renderMail({animate:true});
+});
 document.addEventListener('pointerdown',event=>{
   if(!filterEl.hidden&&!filterEl.contains(event.target)&&!filterButton.contains(event.target))setFilterOpen(false);
 });
@@ -302,12 +321,14 @@ async function loadAgentMail(agent){
 async function selectMailFilter(agent,{requireExisting=false}={}){
   const request=++filterRequest,next=text(agent);
   const known=()=>[...byId.values()].some(m=>includesAgent(m,next));
-  if(next&&!known())await loadAgentMail(next);
+  const missing=next&&!known();
+  if(missing&&requireExisting)await loadAgentMail(next);
   if(request!==filterRequest||(requireExisting&&!known()))return false;
   if(activeFilter!==next){
     activeFilter=next;
     renderMail({animate:true});
   }
+  if(missing&&!requireExisting)await loadAgentMail(next);
   return true;
 }
 
@@ -317,8 +338,10 @@ function emitRoute(){
 function bindRoute(button,message){
   button.addEventListener('pointerenter',()=>{hoveredRoute=message();emitRoute();});
   button.addEventListener('pointerleave',()=>{hoveredRoute=null;emitRoute();});
-  button.addEventListener('focus',()=>{focusedRoute=message();emitRoute();});
-  button.addEventListener('blur',()=>{focusedRoute=null;emitRoute();});
+  button.addEventListener('focusin',()=>{focusedRoute=message();emitRoute();});
+  button.addEventListener('focusout',event=>{
+    if(!button.contains(event.relatedTarget)){focusedRoute=null;emitRoute();}
+  });
 }
 function assignmentRoute(a){return {sender:a.request.sender,recipients:(a.deliveries||[a.recipient]).filter(Boolean)};}
 function messageRoute(m){return m?{sender:m.sender,recipients:recipientNames(m)}:null;}
@@ -333,10 +356,15 @@ function mountPortrait(slot,avatar){
 }
 function paintPeerMarkup(host,markup){
   if(host.markup===markup)return false;
-  host.innerHTML=markup;
+  const action=host.querySelector(':scope > .mail-row-open');
+  if(action){
+    for(const child of [...host.childNodes])if(child!==action)child.remove();
+    host.insertAdjacentHTML('beforeend',markup);
+  }else host.innerHTML=markup;
   host.markup=markup;
   for(const slot of host.querySelectorAll('[data-mail-peer]')){
     const name=slot.dataset.mailPeer;
+    OC.configureReaderAgentButton(slot.parentElement,name);
     if(!peerAvatars.has(name))peerAvatars.set(name,OC.renderPeerAvatar(name));
     const avatar=peerAvatars.get(name);
     if(avatar)mountPortrait(slot,avatar);
@@ -344,16 +372,16 @@ function paintPeerMarkup(host,markup){
   return true;
 }
 function refreshPeerAvatars(){
-  const known=new Set(OC.agents().map(agent=>agent.name));
   for(const [name,previous] of peerAvatars){
-    if(!previous&&!known.has(name))continue;
     const signature=previous?.dataset.readerIdentity;
     const avatar=OC.renderPeerAvatar(name,previous);
-    if(avatar===previous&&avatar?.dataset.readerIdentity===signature)continue;
     peerAvatars.set(name,avatar);
     const selector='[data-mail-peer="'+CSS.escape(name)+'"]';
     for(const host of [mailEl,selectedGraph]){
-      for(const slot of host.querySelectorAll(selector))mountPortrait(slot,avatar);
+      for(const slot of host.querySelectorAll(selector)){
+        OC.configureReaderAgentButton(slot.parentElement,name);
+        if(avatar!==previous||avatar?.dataset.readerIdentity!==signature)mountPortrait(slot,avatar);
+      }
     }
   }
 }
@@ -374,11 +402,31 @@ function paintGraph(){
   if(!route)return;
   const markup=routePeople(route.sender,route.recipients.map(name=>({name,kind:'to'})));
   if(!paintPeerMarkup(selectedGraph,markup))return;
-  selectedGraph.setAttribute('role','img');
+  selectedGraph.setAttribute('role','group');
   selectedGraph.setAttribute('aria-label',(route.sender||'Unknown sender')+' to '+
     (route.recipients.join(', ')||'no direct recipient'));
 }
-graphButton.addEventListener('click',()=>{manualGraphOpen=!manualGraphOpen;paintGraph();});
+function readGraphPreference(){
+  try{return localStorage.getItem(GRAPH_KEY)==='1';}catch(_){return false;}
+}
+function syncGraphPreference(){
+  manualGraphOpen=readGraphPreference();
+  paintGraph();
+}
+graphButton.addEventListener('click',()=>{
+  manualGraphOpen=!manualGraphOpen;
+  try{
+    localStorage.setItem(GRAPH_KEY,manualGraphOpen?'1':'0');
+    window.OrreryPrefs?.flush();
+  }catch(_){/* preference unavailable */}
+  paintGraph();
+});
+window.addEventListener('storage',event=>{
+  if(event.key===GRAPH_KEY)syncGraphPreference();
+});
+document.addEventListener('oc:prefs-changed',event=>{
+  if(event.detail?.keys?.includes(GRAPH_KEY))syncGraphPreference();
+});
 
 function paintView(){
   viewButton.title=timeline?'Group by recipient':'Show thread timeline';
@@ -403,24 +451,26 @@ function paintPortrait(group){
     next.setAttribute('aria-hidden','true');
     previous.replaceWith(next);
   }
+  OC.configureReaderAgentButton(heading,name);
 }
 function makeGroup(name){
   const el=document.createElement('section');
   el.className='mail-assignee';
-  el.innerHTML='<h3 class="mail-assignee-name"><span class="mail-assignee-fallback" aria-hidden="true"></span>'+
-    '<span>'+E(name||'No direct recipient')+'</span></h3><div class="mail-assignments"></div>';
-  const group={name,el,heading:el.firstElementChild,fallback:el.querySelector('.mail-assignee-fallback'),list:el.lastElementChild};
+  el.innerHTML='<h3 class="mail-assignee-name"><button class="mail-assignee-peer" type="button">'+
+    '<span class="mail-assignee-fallback" aria-hidden="true"></span>'+
+    '<span>'+E(name||'No direct recipient')+'</span></button></h3><div class="mail-assignments"></div>';
+  const group={name,el,heading:el.querySelector('.mail-assignee-peer'),fallback:el.querySelector('.mail-assignee-fallback'),list:el.lastElementChild};
   paintPortrait(group);
   return group;
 }
 function makeRow(assignment){
   const el=document.createElement('article');
   el.className='mail-assignment';
-  el.innerHTML='<button class="mail-request" type="button" aria-haspopup="dialog"></button>'+
-    '<button class="mail-reply" type="button" aria-haspopup="dialog" title="Open reply" hidden></button>';
+  el.innerHTML='<div class="mail-request">'+mailRowAction()+'</div>'+
+    '<div class="mail-reply" title="Open reply" hidden>'+mailRowAction()+'</div>';
   const row={el,request:el.firstElementChild,reply:el.lastElementChild,history:null,assignment};
-  row.request.addEventListener('click',()=>openThread(row.assignment,row.request));
-  row.reply.addEventListener('click',()=>openThread(row.assignment,row.reply,latestReply(row.assignment)));
+  row.request.addEventListener('click',()=>openThread(row.assignment,row.request.firstElementChild));
+  row.reply.addEventListener('click',()=>openThread(row.assignment,row.reply.firstElementChild,latestReply(row.assignment)));
   bindRoute(row.request,()=>assignmentRoute(row.assignment));
   bindRoute(row.reply,()=>messageRoute(latestReply(row.assignment)));
   return row;
@@ -451,12 +501,12 @@ function paintRow(row,assignment){
   const action=awaitsReply?'Open request':'Open message';
   const label=`${action}: ${titleFor(request)}, ${sender} to ${recipients}. ${state}${urgency?', high importance':''}`;
   if(row.label!==label){
-    row.request.setAttribute('aria-label',label);
+    row.request.firstElementChild.setAttribute('aria-label',label);
     row.label=label;
   }
   const title=action+'. '+state;
   if(row.request.title!==title)row.request.title=title;
-  const parties=routePeople(request.sender,targets);
+  const parties=routePeople(request.sender,targets,true);
   const senderLine='<span class="mail-requester">'+parties+timeHtml(request.ts)+'</span>';
   const delivery=timeline?'<span class="mail-timeline-start">'+senderLine+
     (request.excerpt?'<span class="thread-excerpt">'+E(request.excerpt)+'</span>':'')+'</span>':senderLine;
@@ -469,7 +519,8 @@ function paintRow(row,assignment){
   if(!latest)return;
   const inferred=assignment.inferred.includes(latest);
   row.reply.title=inferred?'Open possible reply':'Open reply';
-  const replyHtml=routePeople(latest.sender,latest.recipients)+timeHtml(latest.ts)+
+  row.reply.firstElementChild.setAttribute('aria-label',row.reply.title+': '+titleFor(latest));
+  const replyHtml=routePeople(latest.sender,latest.recipients,true)+timeHtml(latest.ts)+
     '<span class="mail-reply-excerpt">'+replyExcerpt(latest,inferred)+'</span>';
   paintPeerMarkup(row.reply,replyHtml);
 }
@@ -484,19 +535,19 @@ function paintTimelineReplies(row){
     row.history.className='mail-timeline-replies';
     row.el.appendChild(row.history);
     row.history.addEventListener('click',event=>{
-      const button=event.target.closest('[data-reply]');
-      const message=button&&row.entries.find(m=>m.key===button.dataset.reply);
-      if(message)openThread(row.assignment,button,message);
+      const item=event.target.closest('[data-reply]');
+      const message=item&&row.entries.find(m=>m.key===item.dataset.reply);
+      if(message)openThread(row.assignment,item.firstElementChild,message);
     });
   }
   const inferred=new Set(row.assignment.inferred);
-  const markup=entries.map(message=>replyHtml(message,inferred.has(message))).join('');
-  const focused=row.history.contains(document.activeElement)?document.activeElement.dataset.reply:null;
+  const markup=entries.map(message=>replyHtml(message,inferred.has(message),true)).join('');
+  const focused=row.history.contains(document.activeElement)?document.activeElement.closest('[data-reply]')?.dataset.reply:null;
   if(!paintPeerMarkup(row.history,markup))return;
-  for(const button of row.history.children){
-    button.title='Open message';
-    bindRoute(button,()=>messageRoute(row.entries.find(m=>m.key===button.dataset.reply)));
-    if(button.dataset.reply===focused)button.focus({preventScroll:true});
+  for(const item of row.history.children){
+    item.title='Open message';
+    bindRoute(item,()=>messageRoute(row.entries.find(m=>m.key===item.dataset.reply)));
+    if(item.dataset.reply===focused)item.firstElementChild.focus({preventScroll:true});
   }
 }
 function reconcile(parent,want){
@@ -517,7 +568,16 @@ function originFor(sender){
 }
 
 function renderMail({animate=false,fresh=new Set()}={}){
-  filterButton.toggleAttribute('data-filtered',Boolean(activeFilter||waitingOnly));
+  const filters=[activeFilter,waitingOnly?'Awaiting a reply':''].filter(Boolean);
+  const filtered=filters.length>0;
+  filterButton.toggleAttribute('data-filtered',filtered);
+  filterSummary.hidden=!filtered;
+  if(filtered){
+    const label=filters.join(' · ');
+    filterLabel.textContent=label;
+    clearFilter.title=label+' · Clear mail filters';
+    clearFilter.setAttribute('aria-label','Clear mail filters: '+label);
+  }
   const visible=assignmentsForView(visibleAssignments());
   const focus=cardsEl.contains(document.activeElement)?document.activeElement:null;
   const moving=animate?OC.railPositions([
@@ -579,110 +639,51 @@ function ingest(list,{live=false}={}){
   }
   renderMail({animate:fresh.size>0,fresh});
 }
-/* Escape the complete source before introducing our own small, fixed tag set.
-   Link destinations and raw HTML are never emitted into the DOM. */
-function plainMarkdownLinks(source){
-  let result='';
-  let index=0;
-  while(index<source.length){
-    const image=source[index]==='!'&&source[index+1]==='[';
-    const labelStart=image?index+1:index;
-    if(source[labelStart]==='['){
-      const labelEnd=source.indexOf(']',labelStart+1);
-      if(labelEnd>=0&&source[labelEnd+1]==='('){
-        let cursor=labelEnd+2;
-        let depth=1;
-        while(cursor<source.length&&depth){
-          if(source[cursor]==='\\'){cursor+=2;continue;}
-          if(source[cursor]==='(')depth++;
-          else if(source[cursor]===')')depth--;
-          cursor++;
-        }
-        if(depth===0){
-          result+=source.slice(labelStart+1,labelEnd);
-          index=cursor;
-          continue;
-        }
-      }
-    }
-    result+=source[index];
-    index++;
-  }
-  return result;
-}
-
-function inlineMarkdown(escaped){
-  const code=[];
-  let value=escaped.replace(/`([^`\n]+)`/g,(_,contents)=>{
-    const index=code.push('<code>'+contents+'</code>')-1;
-    return '\uE000'+index+'\uE001';
-  });
-  value=plainMarkdownLinks(value);
-  value=value.replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>');
-  value=value.replace(/__([^_\n]+)__/g,'<strong>$1</strong>');
-  return value.replace(/\uE000(\d+)\uE001/g,(_,index)=>code[Number(index)]||'');
-}
-
-function renderMarkdown(source){
-  const escaped=E(text(source).replace(/\r\n?/g,'\n'));
-  const lines=escaped.split('\n');
-  const html=[];
-  let fenced=false;
-  let code=[];
-  const flushCode=()=>{
-    html.push('<pre><code>'+code.join('\n')+'</code></pre>');
-    code=[];
-  };
-  lines.forEach(line=>{
-    if(/^\s*```/.test(line)){
-      if(fenced){flushCode();fenced=false;}else{fenced=true;code=[];}
-      return;
-    }
-    if(fenced){code.push(line);return;}
-    const heading=line.match(/^(#{1,6})\s+(.+)$/);
-    if(heading){
-      const level=Math.min(heading[1].length,4);
-      html.push('<h'+level+'>'+inlineMarkdown(heading[2])+'</h'+level+'>');
-      return;
-    }
-    const unordered=line.match(/^\s*[-+*]\s+(.+)$/);
-    if(unordered){
-      html.push('<div class="md-list-row"><span class="md-marker">•</span><span>'+inlineMarkdown(unordered[1])+'</span></div>');
-      return;
-    }
-    const ordered=line.match(/^\s*(\d+)[.)]\s+(.+)$/);
-    if(ordered){
-      html.push('<div class="md-list-row"><span class="md-marker">'+E(ordered[1])+'.</span><span>'+inlineMarkdown(ordered[2])+'</span></div>');
-      return;
-    }
-    if(!line.trim()){html.push('<div class="md-space"></div>');return;}
-    html.push('<p>'+inlineMarkdown(line)+'</p>');
-  });
-  if(fenced)flushCode();
-  return html.join('');
-}
-
 function peerHtml(name,fallback,title=''){
-  const portrait=name?'<span class="mail-peer-avatar" aria-hidden="true" data-mail-peer="'+E(name)+'"></span>':'';
-  return '<span class="mail-peer"'+(title?' title="'+E(title)+'"':'')+'>'+portrait+
-    '<span>'+E(name||fallback)+'</span></span>';
+  const label=E(name||fallback);
+  if(!name)return '<span class="mail-peer"><span>'+label+'</span></span>';
+  return '<button type="button" class="mail-peer"'+(title?' data-delivery="'+E(title)+'"':'')+'>'+
+    '<span class="mail-peer-avatar" aria-hidden="true" data-mail-peer="'+label+'"></span>'+
+    '<span title="'+label+'">'+label+'</span></button>';
 }
-function routePeople(sender,recipients){
+function routePeople(sender,recipients,compact=false){
+  // Keep every multi-recipient Reader shortcut in the fork's Mail rail.
+  compact=compact&&recipients.length===1;
   const destinations=recipients.map(({name,kind})=>peerHtml(name,'No direct recipient',kind==='to'?'':kind.toUpperCase()));
-  return '<span class="mail-route">'+peerHtml(sender,'Unknown sender')+icon('arrow')+
+  return '<span class="mail-route'+(compact?' mail-route-compact':'')+'">'+peerHtml(sender,'Unknown sender')+icon('arrow')+
     '<span class="mail-route-recipients">'+(destinations.join(' ')||peerHtml('','No direct recipient'))+'</span></span>';
 }
-function routeHtml(message){
-  return '<div class="drawer-route">'+routePeople(message.sender,message.recipients)+timeHtml(message.ts)+'</div>';
+function routeHtml(message,compact=false){
+  return '<div class="drawer-route">'+routePeople(message.sender,message.recipients,compact)+timeHtml(message.ts)+'</div>';
+}
+function mailRowAction(label=''){
+  return '<button class="mail-row-open" type="button" aria-haspopup="dialog" aria-label="'+E(label)+'"></button>';
 }
 function detailHtml(message){
-  const body=message.body_md??message.excerpt;
-  return routeHtml(message)+'<h2>'+E(titleFor(message))+'</h2>'+
-    '<div class="mail-md">'+(body?renderMarkdown(body):'<p class="md-empty">No message text</p>')+'</div>';
+  return routeHtml(message)+'<h2>'+E(titleFor(message))+'</h2><div class="mail-md conversation-text"></div>';
 }
-function replyHtml(message,inferred=false){
-  return '<button type="button" class="thread-item" data-reply="'+E(message.key)+'">'+routeHtml(message)+
-    '<span class="thread-excerpt">'+replyExcerpt(message,inferred)+'</span></button>';
+function renderDrawerBody(message){
+  const host=drawerBody.querySelector('.mail-md'),body=message.body_md??message.excerpt;
+  if(paintedBody?.host===host&&paintedBody.body===body)return;
+  const item={host,body};paintedBody=item;
+  host.textContent=body||'No message text';
+  host.classList.toggle('md-empty',!body);
+  host.classList.remove('conversation-markdown');
+  if(!body)return;
+  loadCockpitMarkdown().then(()=>{
+    if(paintedBody!==item)return;
+    const markdown=window.OrreryConversationMarkdown;
+    host.replaceChildren();host.classList.add('conversation-markdown');
+    markdown.renderDocument(body,host,{codeControls:true});
+    if(!observingPaths){
+      markdown.observePaths(drawerBody,new OrreryConversationSource.Source());
+      observingPaths=true;
+    }
+  },()=>{if(paintedBody===item)paintedBody=null;});
+}
+function replyHtml(message,inferred=false,compact=false){
+  return '<div class="thread-item" data-reply="'+E(message.key)+'">'+mailRowAction('Open message: '+titleFor(message))+
+    routeHtml(message,compact)+'<span class="thread-excerpt">'+replyExcerpt(message,inferred)+'</span></div>';
 }
 function replyExcerpt(message,inferred){
   const mark=inferred?linkMark('Possible reply (linked by delivery direction)','reverse')+' ':'';
@@ -713,25 +714,27 @@ function renderDrawer({initial=false}={}){
   emitRoute();
   const focused=document.activeElement;
   const focusAction=drawerHead.contains(focused)?focused.dataset.action:'';
-  const focusReply=drawerChain.contains(focused)?focused.dataset.reply:'';
+  const focusReply=drawerChain.contains(focused)?focused.closest('[data-reply]')?.dataset.reply:'';
   const {message,assignment,entries}=state;
   const head=drawerLinkSource(assignment,message)+(message?control('thread','Back to request','thread'):'')+
     control('close','Close mail','close');
   if(drawerHead.markup!==head){drawerHead.innerHTML=head;drawerHead.markup=head;}
-  const body=detailHtml(message||state.request||assignment.request)+
+  const shown=message||state.request||assignment.request;
+  const body=detailHtml(shown)+
     (state.failed?'<p class="drawer-empty" role="status">Could not load the full message. Reopen it to retry.</p>':'');
   paintPeerMarkup(drawerBody,body);
+  renderDrawerBody(shown);
   drawerChain.hidden=Boolean(message||!entries.length);
   const inferred=new Set(assignment.inferred);
   const chain=entries.map(item=>replyHtml(item,inferred.has(item))).join('');
   if(paintPeerMarkup(drawerChain,chain)){
-    drawerChain.querySelectorAll('[data-reply]').forEach(button=>{
-      bindRoute(button,()=>messageRoute(drawer?.entries.find(m=>m.key===button.dataset.reply)));
+    drawerChain.querySelectorAll('[data-reply]').forEach(item=>{
+      bindRoute(item,()=>messageRoute(drawer?.entries.find(m=>m.key===item.dataset.reply)));
     });
   }
   if(initial||!focused?.isConnected){
     const next=(focusAction&&drawerHead.querySelector('[data-action="'+focusAction+'"]'))||
-      (!drawerChain.hidden&&focusReply&&[...drawerChain.children].find(button=>button.dataset.reply===focusReply))||
+      (!drawerChain.hidden&&focusReply&&[...drawerChain.children].find(item=>item.dataset.reply===focusReply)?.firstElementChild)||
       drawerHead.querySelector('[data-action="close"]');
     next.focus({preventScroll:true});
   }
@@ -871,8 +874,24 @@ drawerEl.addEventListener('click',event=>{
   else if(button?.dataset.action==='thread'){
     ++replyRequest;drawer.message=null;drawer.failed=drawer.requestFailed;
     renderDrawer({initial:true});drawerScroll.scrollTop=0;
-  }else if(button?.dataset.reply!==undefined)openReply(drawer.entries.find(item=>item.key===button.dataset.reply));
+  }else{
+    const reply=event.target.closest('[data-reply]');
+    if(reply)openReply(drawer.entries.find(item=>item.key===reply.dataset.reply));
+  }
 });
+function activateMailLink(event){
+  if(!drawer||event.type==='auxclick'&&event.button!==1)return;
+  const link=event.target.closest('.mail-md a');
+  if(!link)return;
+  if(event.detail>1||!window.getSelection()?.isCollapsed){event.preventDefault();return;}
+  if(link.dataset.localPath){
+    event.preventDefault();revealLocalPath(link.dataset.localPath,{literal:true});
+  }else if(/^https?:$/i.test(link.protocol)){
+    event.preventDefault();openExternalUrl(link.href);
+  }
+}
+drawerBody.addEventListener('click',activateMailLink);
+drawerBody.addEventListener('auxclick',activateMailLink);
 
 document.addEventListener('keydown',event=>{
   if(event.key!=='Escape'||document.querySelector('.overlay.on'))return;
@@ -880,13 +899,26 @@ document.addEventListener('keydown',event=>{
   else if(!filterEl.hidden){event.preventDefault();event.stopPropagation();setFilterOpen(false,true);}
 },true);
 document.addEventListener('oc:mail',event=>ingest(event.detail?.messages,{live:true}));
-document.addEventListener('oc:agents',()=>{
+function refreshMailPeople(){
   groupsByName.forEach(paintPortrait);
   refreshPeerAvatars();
+}
+document.addEventListener('oc:agents',refreshMailPeople);
+document.addEventListener('oc:prefs-changed',refreshMailPeople);
+document.getElementById('conversationEnabled').addEventListener('change',()=>queueMicrotask(refreshMailPeople));
+document.addEventListener('oc:filter-agent',event=>{
+  clearedAgent='';
+  selectMailFilter(event.detail?.agent);
 });
-document.addEventListener('oc:filter-agent',event=>selectMailFilter(event.detail?.agent));
-document.addEventListener('oc:focus-agent',event=>selectMailFilter(event.detail?.name,{requireExisting:true}));
+document.addEventListener('oc:focus-agent',event=>{
+  const name=event.detail?.name;
+  // A pane can finish attaching after its roster selection was cleared.
+  if(name===clearedAgent)return;
+  clearedAgent='';
+  selectMailFilter(name,{requireExisting:true});
+});
 paintView();
+paintGraph();
 ingest(OC.mailBacklog());
 fetchJson('/telemetry/mail/recent?limit=40').then(data=>{
   if(Array.isArray(data?.messages))ingest(data.messages);

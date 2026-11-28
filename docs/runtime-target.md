@@ -1,6 +1,8 @@
 # 旧 cockpit の tmux 対象保護
 
-正常な共有 helper がある cockpit は起動時に legacy の接続先を1つ確定し、以後は絶対 socket を明示した `tmux -S` を使います。control attach・入力・split/close・terminal を開く操作の直前に、Telemetry の共有 helper で対象を照合します。socket や server PID が変わったときは拒否し、裸の tmux へ戻しません。server が無い状態で起動した場合だけ、同じ接続先に現れた最初の server を固定できます。
+正常な共有 helper がある cockpit は起動時に legacy の接続先を1つ確定し、以後は絶対 socket を明示した `tmux -S` を使います。control attach・入力・split/close・terminal を開く操作の直前に、Telemetry の共有 helper で対象を照合します。socket や server PID が変わったときは古い接続からの操作を拒否し、裸の tmux へ戻しません。server が無い状態で起動した場合は、同じ接続先に現れた最初の server を固定できます。
+
+既定 socket の server が置換された場合、古い recorder の control client を停止してから同じ接続先を再検証します。停止に失敗した場合や元の guard process が終了していない場合は、接続先の再固定と新規 recorder の attach を拒否し、次の照合時に停止を再試行します。古い window claim を置換先に復元することはありません。継承された `TMUX` の固定は維持します。
 
 これは旧 consumer の互換保護です。global の専用 terminal・WS・pane window の移植は後続です。新規 global 専用起動を有効にするものではありません。既存の純旧 mode の操作と、補助 session に対する従来の split/close 制限は維持します。
 

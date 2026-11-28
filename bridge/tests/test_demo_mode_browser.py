@@ -239,6 +239,21 @@ def test_terminal_names_are_masked_where_drawn_split_slow_coloured_or_prompted()
         assert buffer_rows(js)[0] == "ANSI: /Users/mira/private.txt"
 
 
+def test_windows_profile_mask_preserves_terminal_buffer_and_draft():
+    with browser() as (go, js):
+        open_demo(go, js)
+        start_pane(js)
+        raw = "D:/Users/Other Profile/work"
+        write(js, raw + "\r\n")
+        assert drawn(js)[0] == "D:/Users/*************/work"
+        assert buffer_rows(js)[0] == raw
+        assert copy_rows(js, 0, 0) == raw
+        field = js("""(()=>{const f=document.getElementById('promptInput');
+          f.value='D:/Users/Other Profile/work';
+          return [f.value,f.__demoOverlay?.textContent.trim()];})()""")
+        assert field == [raw, "D:/Users/*************/work"]
+
+
 def test_a_name_built_with_backspaces_and_colours_is_masked():
     """Second review R1: "/Users/xx", then two backspaces and "mi<red>ra"."""
     with browser() as (go, js):

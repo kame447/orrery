@@ -444,7 +444,7 @@ The filesystem browser excludes hidden directories and returns up to 200 entries
 
 ## Mini-orrery
 
-The mini-orrery shows the spawn forest of live agents and the mail edges / comets of the last 90 seconds.
+The mini-orrery shows the spawn forest of live agents and recorded communication links, emphasizes traffic from the last 90 seconds, and displays a comet when Mail arrives.
 
 - Click a node to jump to the agent / session
 - Hover a node to show identity, role, and model

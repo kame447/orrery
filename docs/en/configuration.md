@@ -87,13 +87,16 @@ In demo mode the Phone section does not put the Tailscale login, the phone addre
 
 | environment variable | default | purpose |
 | --- | --- | --- |
-| `ORRERY_MAIL_DB` | `config.mail_db`, then `~/.agentstack/mail/storage.sqlite3` | The ORRERY Mail SQLite that ORRERY opens read-only. There is no fallback to `AGENTSTACK_MAIL_DB` |
+| `ORRERY_MAIL_DB` | `config.mail_db`, then `~/.agentstack/mail/storage.sqlite3` | The ORRERY Mail SQLite that the legacy backend opens read-only. See [precedence](#orrery-mail-db) for how the startup script inherits a path |
 | `ORRERY_PROJECT_KEY` | `AGENTSTACK_PROJECT_KEY`, then `config.project_key`, finally unset | `projects.human_key` for mail queries. In a user's environment, specify an absolute path |
 | `AGENTSTACK_PROJECT_KEY` | `config.project_key`, then unset | The common fallback for the ORRERY project key. The same value as ORRERY Telemetry is recommended |
 | `ORRERY_PORTRAIT_DIR` | `<repo>/assets/portraits_64` | Normal portraits |
 | `ORRERY_PORTRAIT_DIR_HI` | `<repo>/assets/portraits` | `hi=1` portraits |
 | `ORRERY_PORTRAIT_DIR_PX` | `<repo>/assets/portraits_px` | `style=pixel` portraits |
 | `AGENTSTACK_ANNOTATIONS` | `config.annotations_path`, then the ORRERY Telemetry runtime / legacy path | A file fallback read only when the dashboard annotation API is unreachable |
+| `ORRERY_PREFS_PATH` | `~/.orrery/prefs.json` | File where the cockpit reads and writes shared preferences |
+| `ORRERY_NO_OPEN` | `0` | Set to `1` to skip opening the browser after shared setup starts or restarts the backend |
+| `ORRERY_COCKPIT_TMUX_SOCKET` | `orrery-cockpit` | Dedicated tmux socket for the cockpit backend started by shared setup |
 | `ORRERY_HISTORY_DIR` | `~/.orrery/history` | Where the terminal recorder saves its JSON |
 | `AGENTSTACK_ORRERY_ROOT` | `config.orrery_root`, then unset | The root where the Tauri sidecar looks for the checkout |
 | `ORRERY_BACKEND_PYTHON` | `<root>/bridge/.venv/bin/python` | The sidecar's Python |
@@ -153,7 +156,7 @@ In a user's environment, set one of 1 to 3 as an absolute path. When it is unset
 
 ### ORRERY Mail DB
 
-ORRERY reads `ORRERY_MAIL_DB`, then `mail_db` in `config.json`, then the default path, in that order. ORRERY Telemetry's `AGENTSTACK_MAIL_DB` is not inherited automatically, so for anything other than the default, set the same path on both sides.
+In legacy mode, `scripts/start-cockpit.sh` checks `ORRERY_MAIL_DB`, the shell's `AGENTSTACK_MAIL_DB`, and then `AGENTSTACK_MAIL_DB` in Telemetry's installed `env.sh`. It passes the selected path to the backend as `ORRERY_MAIL_DB`. A direct legacy backend launch checks `ORRERY_MAIL_DB`, then `mail_db` in `config.json`, then the default path. Fresh mode reads Mail through the protected dashboard API and does not fall back to the legacy database.
 
 SQLite is opened read-only in this form:
 
@@ -176,13 +179,7 @@ This file fallback is used only when the dashboard's `/api/annotations` is unrea
 
 ### ORRERY Telemetry dashboard
 
-ORRERY's destination is fixed to:
-
-```text
-http://127.0.0.1:8770
-```
-
-Do not change the port on the ORRERY Telemetry side. The APIs it needs are `/api/agents`, `/api/messages-since`, `/api/graph`, `/api/spawn`, `/api/spawn-names`, `/api/annotations`, and `/api/exit`.
+The default legacy dashboard URL is `http://127.0.0.1:8770`. Set `ORRERY_DASHBOARD_URL` to override it. If unset, `scripts/start-cockpit.sh` uses `AGENTSTACK_PORT` from Telemetry's installed `env.sh`. Set `ORRERY_DASHBOARD_URL` explicitly when launching the legacy backend directly with a custom Telemetry port. For fresh mode, see the fresh connection requirements at the beginning of this document. The APIs it needs are `/api/agents`, `/api/messages-since`, `/api/graph`, `/api/spawn`, `/api/spawn-names`, `/api/annotations`, and `/api/exit`.
 
 ### tmux
 
@@ -217,7 +214,7 @@ On a shared Mac, during screen sharing, or with confidential sessions, consider 
 - Do not screen-share while the mail rail and terminal are showing
 - For screen sharing and recordings, use demo mode
 
-Demo mode (Demo mode in Settings, or `?demo=1` in the URL; `?demo=0` turns it off for that page) masks your user name and machine name on screen with the same number of `*`. It masks the user name inside a home path (`/Users/<name>`, `/home/<name>`, `C:\Users\<name>`), in the form `<name>@`, and the machine name as a word of its own. The names come from the backend's `GET /telemetry/identity`, which reads them from `$HOME`, the login name and the host name (and, on WSL, the Windows user name); nothing is guessed. A name inside another word, and people's names written in text, are not masked. Only the display changes: agents, records and Mail stay as they are, and clicking a path or URL in a terminal, and copying, use the real values. A text field keeps its real value and shows a masked copy over it (sending, editing and copying use the real value). Nothing is shown until the names are known; if the backend cannot return them, the page stays hidden and shows the reason with Retry (choose "Open without demo mode" to see the page unmasked). The Settings switch is saved in browser `localStorage`.
+Demo mode (Demo mode in Settings, or `?demo=1` in the URL; `?demo=0` turns it off for that page) masks your user name and machine name on screen with the same number of `*`. It masks the user name inside a home path (`/Users/<name>`, `/home/<name>`, `C:\Users\<name>`), in the form `<name>@`, and the machine name as a word of its own. The names come from the backend's `GET /telemetry/identity`, which reads them from `$HOME`, the login name and the host name (and, on WSL, the Windows user name); Windows drive paths and WSL `/mnt/<drive>/Users/` paths also mask recognizable profile components even when they differ from the login name. A name containing spaces without a following path separator may be only partially masked. A name inside another word, and people's names written in text, are not masked. Only the display changes: agents, records and Mail stay as they are, and clicking a path or URL in a terminal, and copying, use the real values. A text field keeps its real value and shows a masked copy over it (sending, editing and copying use the real value). Nothing is shown until the names are known; if the backend cannot return them, the page stays hidden and shows the reason with Retry (choose "Open without demo mode" to see the page unmasked). The Settings switch is saved in browser `localStorage`.
 
 To hide other words too (a person's name written in Mail, a project name), add them, separated by `,`, under "Also mask these words" in Settings (saved in browser `localStorage`). They are hidden like the user name: the same number of `*`, in terminal contents too, and clicks and copies get the real text back. A word of letters and digits is hidden in any letter case, only as a whole word (`Kobo`, but not inside `kobold`). A word with any other character, such as Japanese, which has no spaces between words, is hidden wherever it appears (adding `ミラノ` also hides it in `ミラノさん`). One-character words are ignored. For one page you can also pass `?mask=word,word` in the URL, but a URL stays in history and in anything you share, so prefer the Settings field.
 

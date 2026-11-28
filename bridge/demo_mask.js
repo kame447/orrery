@@ -3,7 +3,10 @@
    What is hidden: the user name where it is part of a home path
    (/Users/<name>, /home/<name>, C:\Users\<name>), the user name right before
    an "@" (a shell prompt's user@host), and the host name as a whole word. The
-   names come from the backend (GET /telemetry/identity), never from guessing.
+   names come from the backend (GET /telemetry/identity). Windows profile
+   components in drive paths and WSL mounts are also masked if the profile
+   name differs from the login name. Unquoted text without a following path
+   separator may only identify the first token of a profile name.
    A name that only appears inside another word ("admiral" for a user called
    "mira") is left alone.
 
@@ -31,6 +34,10 @@
   const NARROW_MASK='*',WIDE_MASK='\uFF0A';
   const NAME_CHAR=/[A-Za-z0-9._-]/,HOST_CHAR=/[A-Za-z0-9-]/,WORD_CHAR=/[A-Za-z0-9_]/;
   const LATIN_WORD=/^[A-Za-z0-9_][A-Za-z0-9_ .'-]*$/;
+
+  const WINDOWS_HOME=/(?:\/mnt\/[a-z]\/users\/|[a-z]:[\\/]users[\\/])/gi;
+  const WINDOWS_PROFILE=/^[^\\/\x00-\x1f<>:"|?*]+/;
+  const WINDOWS_PROFILE_TOKEN=/^[^\s\\/<>:"'`|?*]+/;
 
   // East Asian Wide / Fullwidth ranges, enough for names and host names.
   function isWide(cp){
@@ -153,6 +160,17 @@
         }
         take(at,at+word.length);
       });
+      // A Windows profile directory can differ from its login. Match it
+      // in addition to known names: union the ranges so a fallback token
+      // never removes a longer existing mask.
+      for(const prefix of text.matchAll(WINDOWS_HOME)){
+        const start=prefix.index+prefix[0].length,rest=text.slice(start);
+        const component=rest.match(WINDOWS_PROFILE)?.[0]||'';
+        const next=rest[component.length];
+        const delimited=/[\\/]/.test(next||'')&&!/['`]/.test(component)&&!/\s$/.test(component);
+        const name=delimited?component:rest.match(WINDOWS_PROFILE_TOKEN)?.[0];
+        if(name&&start+name.length>context)found.push([Math.max(start,context),start+name.length]);
+      }
       return found.sort((a,b)=>a[0]-b[0]);
     }
 

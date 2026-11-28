@@ -216,6 +216,25 @@ class NetworkConnectivityTests(unittest.TestCase):
         self.assertEqual(result["layout"]["components"], [["A", "B", "C"]])
         self.assertEqual(result["lines"], [{"a": "B", "b": "C", "opacity": 0.2, "life": 0}])
 
+    def test_mail_route_uses_drawn_lineage_not_rejected_cyclic_parent(self):
+        result = run_js("""
+          lineageParent=new Map([['A','C'],['B','A'],['C','B']]);
+          const forest=buildForest(['A','B','C'].map(name=>({name})));
+          const spawnPairs=new Set([...forest.parentOf].map(([child,parent])=>pairKey(parent,child)));
+          const from={name:'B',x:30,y:100},middle={name:'A',x:140,y:100},
+                to={name:'C',x:250,y:100};
+          const positions=new Map([[from.name,from],[middle.name,middle],[to.name,to]]);
+          const rejected=commPathBetween(from,to,positions,MINI,spawnPairs);
+          const ordinary=commPathBetween(from,to,positions,MINI);
+          const valid=commPathBetween(from,middle,positions,MINI,spawnPairs);
+          return {rejected:rejected.d,ordinary:ordinary.d,valid:valid.d,
+            drawn:isLineagePair('B','C',spawnPairs)};
+        """)
+        self.assertFalse(result["drawn"])
+        self.assertIn(" Q ", result["rejected"])
+        self.assertEqual(result["rejected"], result["ordinary"])
+        self.assertIn(" L ", result["valid"])
+
     def test_mail_observed_before_roster_survives_old_roster_and_late_graph(self):
         result = run_js("""
           roster(['A']);mail('A','NewChild');

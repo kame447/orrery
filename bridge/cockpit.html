@@ -162,6 +162,7 @@
     background:linear-gradient(180deg,var(--panel),rgba(17,20,25,.6));
     backdrop-filter:blur(6px);
   }
+  .cockpit-header{gap:24px;padding-inline:22px 20px;font-family:var(--rail-sans)}
   .brand{display:flex;align-items:center;gap:11px}
   .brand-orbit{width:32px;height:32px;flex:none}
   .brand-orbit-light{display:none}
@@ -172,9 +173,11 @@
     color:var(--ink);
   }
   .brand .mark b{color:var(--amber);font-weight:600}
-  .brand .sub{font-size:10.5px;letter-spacing:.34em;text-transform:uppercase;color:var(--ink-faint)}
+  .brand .sub{font-size:12px;color:var(--ink-dim)}
   .topgap{flex:1}
-  .topstat{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--ink-dim);letter-spacing:.04em}
+  .header-status,.header-actions{display:flex;align-items:center;gap:14px;min-width:0}
+  .header-actions{gap:4px}
+  .topstat{display:flex;align-items:center;gap:7px;font-size:13px;color:var(--ink-dim);white-space:nowrap;font-variant-numeric:tabular-nums}
   .topstat .num{color:var(--ink);font-weight:600}
   .topstat .of{color:var(--ink-faint);margin:0 -3px}
   .topstat[hidden]{display:none}  /* display:flex above would otherwise beat the hidden attribute */
@@ -183,10 +186,14 @@
   .topstat .dot.open{background:var(--ln-local);box-shadow:0 0 8px rgb(var(--theme-local-rgb) / .4);animation:breathe 2.4s ease-in-out infinite}
   .topstat .dot.connecting{background:var(--amber);animation:blink 1s steps(1) infinite}
   .topstat .dot.closed,.topstat .dot.error{background:#d2685e}
-  .topstat .sep{color:var(--ink-faint);margin:0 2px}
-  .topstat.crew .num:first-of-type{color:var(--amber)}
+  .crew{gap:13px}
+  .crew-count{display:inline-flex;align-items:center;gap:4px}
+  .crew-state{display:grid;place-items:center;width:14px;height:14px;overflow:hidden}
+  .crew-state #agentDot{width:4px;height:4px;outline:1px solid var(--hair);outline-offset:2px}
+  .crew-state #agentDot.open{background:var(--amber);outline-color:color-mix(in srgb,var(--amber) 45%,transparent);animation:none}
+  .crew-state svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round}
   /* the one count a person must answer: a chip that is absent at zero */
-  .need-chip{font:inherit;font-size:11px;letter-spacing:.04em;cursor:pointer;
+  .need-chip{font:inherit;font-size:12px;cursor:pointer;
     padding:4px 10px;border-radius:999px;color:var(--ink);
     background:rgb(210 104 94 / .14);border:1px solid rgb(210 104 94 / .55)}
   .need-chip .dot{background:var(--theme-status-alert,#d2685e);animation:blink 1s steps(1) infinite}
@@ -195,7 +202,7 @@
   @media (prefers-reduced-motion:reduce){.need-chip .dot{animation:none}}
   .sesschip{font-size:11px;color:var(--ink-dim);padding:5px 11px;border:1px solid var(--hair);border-radius:6px;letter-spacing:.05em}
   .sesschip b{color:var(--ln-local)}
-  .clock{font-variant-numeric:tabular-nums;color:var(--ink);letter-spacing:.08em;font-size:12px}
+  .clock{font-variant-numeric:tabular-nums;color:var(--ink-dim);font-size:13px;font-weight:500;white-space:nowrap}
 
   /* ── body grid ─────────────────────────── */
   .grid{
@@ -208,15 +215,22 @@
   .col{min-height:0;display:flex;flex-direction:column;overflow:hidden}
   .col.roster{border-right:1px solid var(--hair)}
   .col.mail{grid-column:3;grid-row:1;border-left:1px solid var(--hair)}
+  .mail-divider,.mail-graph-divider{position:relative;touch-action:none;outline:none}
   .mail-divider{
-    position:relative;z-index:4;grid-column:3;grid-row:1;justify-self:start;translate:-50% 0;width:12px;
-    cursor:col-resize;touch-action:none;outline:none;
+    z-index:4;grid-column:3;grid-row:1;justify-self:start;translate:-50% 0;width:12px;cursor:col-resize;
   }
-  .mail-divider::after{
+  .mail-graph-divider{flex:0 0 12px;cursor:row-resize}
+  .miniorrery[hidden]+.mail-graph-divider{display:none}
+  .mail-divider::after,.mail-graph-divider::after{
     content:"";position:absolute;left:50%;top:50%;translate:-50% -50%;
-    width:2px;height:32px;border-radius:2px;background:var(--ink-faint);
+    border-radius:2px;background:var(--ink-faint);
   }
-  .mail-divider:is(:hover,:focus-visible,.dragging)::after{background:var(--amber);width:3px}
+  .mail-divider::after{width:2px;height:32px}
+  .mail-graph-divider::after{width:32px;height:2px}
+  .mail-divider:is(:hover,:focus-visible,.dragging)::after,
+  .mail-graph-divider:is(:hover,:focus-visible,.dragging)::after{background:var(--amber)}
+  .mail-divider:is(:hover,:focus-visible,.dragging)::after{width:3px}
+  .mail-graph-divider:is(:hover,:focus-visible,.dragging)::after{height:3px}
 
   .colhead{
     display:flex;align-items:center;justify-content:space-between;
@@ -243,14 +257,25 @@
   .roster-status[hidden]{display:none}
   button,input,select,textarea{font:inherit}
   button{color:inherit}
+  .reader-agent-link{
+    border:0;padding:0;background:none;color:inherit;font:inherit;letter-spacing:inherit;text-align:inherit;
+  }
+  .reader-agent-link:not(:disabled){cursor:pointer}
+  .reader-agent-link:not(:disabled):is(:hover,:focus-visible){color:var(--amber)}
+  .reader-agent-link:focus-visible{outline:1px solid var(--amber);outline-offset:2px}
+  .reader-agent-link:disabled{pointer-events:none}
   .new-agent{
     border:1px solid rgb(var(--theme-accent-rgb) / .3);border-radius:5px;padding:4px 8px;
     background:transparent;color:var(--amber);font-size:9px;letter-spacing:.13em;
     text-transform:uppercase;cursor:pointer;transition:border-color .2s,background .2s;
   }
   .new-agent:hover,.new-agent:focus-visible{border-color:var(--amber);background:var(--amber-glow);outline:none}
-  .header-utility{display:inline-flex;align-items:center;gap:6px;border-color:var(--hair);color:var(--ink-dim)}
-  .header-utility:hover,.header-utility:focus-visible{color:var(--ink);border-color:rgb(var(--theme-accent-rgb) / .42);background:rgb(var(--theme-accent-rgb) / .07)}
+  .header-utility{display:inline-flex;flex:none;align-items:center;justify-content:center;min-height:32px;border:0;border-radius:7px;background:transparent;color:var(--ink-dim);cursor:pointer}
+  .header-action{width:32px;padding:0}
+  .header-icon{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
+  .header-utility:hover,.header-utility:focus-visible,.header-utility[aria-expanded="true"]{color:var(--ink);background:rgb(var(--theme-ink-rgb) / .067)}
+  .header-utility:focus-visible{outline:2px solid var(--amber);outline-offset:2px}
+  .header-action:active .header-icon{scale:.92}
   .roster-select:disabled{opacity:.45;cursor:wait}
   .roster-head .new-agent{
     height:32px;padding:0 9px;border-radius:8px;white-space:nowrap;flex:none;
@@ -405,7 +430,8 @@
   .roster.select-mode .agent.bulk-selected{background:var(--rail-selection)}
   .roster.select-mode .agent.bulk-selected .bulk-check{border-color:var(--amber);background:var(--amber)}
   .roster.select-mode .agent.bulk-selected .bulk-check::after{opacity:1}
-  .roster.select-mode .agent.bulk-ineligible{opacity:.38!important;cursor:not-allowed;filter:saturate(.45)}
+  .roster.select-mode .agent.bulk-ineligible:not(.permission-target){opacity:.38!important;cursor:not-allowed;filter:saturate(.45)}
+  .roster.select-mode .agent.permission-target{cursor:default}
   .agent.offline-hint .agent-status{border-color:var(--theme-status-alert,#ff6a5d)}
   .roster-bulkbar{
     margin:8px 10px 0;padding:8px 9px;display:flex;align-items:center;justify-content:space-between;gap:10px;
@@ -452,19 +478,25 @@
   .pill.eng-grok{color:var(--ink);border-color:rgb(var(--theme-ink-rgb) / .3)}
   /* usage: a header pill beside Settings carries the binding window per
      provider (the lowest remaining %); the popover opens the dials. */
-  .usage-pill .up-k{color:var(--ink-faint);letter-spacing:.18em;font-size:9px;margin-right:2px}
-  .usage-pill .up-p{display:inline-flex;align-items:center;gap:5px;font-variant-numeric:tabular-nums}
-  .usage-pill .up-p+.up-p{margin-left:12px}
+  .usage-pill{min-height:40px;min-width:32px;padding:0 4px;gap:13px}
+  .usage-pill .up-p{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;--usage-accent:var(--ln-local)}
   .usage-pill .up-p[hidden]{display:none}
+  .usage-pill:has(.up-p:not([hidden])) .usage-fallback{display:none}
   /* the provider is named by its logo (bridge/assets: CC0 marks from Simple Icons and SVG Logos; see CREDITS.md) */
   .up-logo{width:16px;height:16px;object-fit:contain;flex:none}
+  .up-mark{position:relative;display:grid;place-items:center;width:28px;height:28px}
+  .up-mark .up-logo{width:14px;height:14px}
+  .up-meter{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;fill:none;stroke-width:1.8}
+  .up-meter-track{stroke:rgb(var(--theme-ink-rgb) / .14)}
+  .up-meter-fill{stroke:var(--usage-accent);stroke-linecap:round;stroke-dasharray:var(--usage-left,0) 100}
+  .usage-pill .up-p.none .up-meter-fill{display:none}
   .usage-pill .up-p.none .up-logo{opacity:.5}
   .usage-popover .up-name .up-logo{width:20px;height:20px;margin-right:8px;vertical-align:-4px}
-  /* the number takes the tmux chip's emerald while there is room, amber at
-     half, and the alert red near the floor — the same three tiers as the dials */
-  .usage-pill .up-p b{font-weight:600;color:var(--ln-local);font-size:11px}
-  .usage-pill .up-p.warn b{color:var(--amber)}
-  .usage-pill .up-p.low b{color:var(--theme-status-alert,#d2685e)}
+  /* The arc uses the ledger's three tiers. Balances have only the numeric value. */
+  .usage-pill .up-p b{font-weight:600;color:var(--ink);font-size:13px;font-variant-numeric:tabular-nums}
+  .usage-pill .up-p.warn{--usage-accent:var(--amber)}
+  .usage-pill .up-p.low{--usage-accent:var(--theme-status-alert,#d2685e)}
+  .usage-pill .up-p:is(.warn,.low) b{color:var(--usage-accent)}
   .usage-pill .up-p.none b{color:var(--ink-faint);font-weight:500}
   .usage-pill.stale .up-p b{opacity:.55}
   .usage-popover{position:fixed;inset:62px 18px auto auto;width:min(430px,calc(100vw - 28px));margin:0;
@@ -536,7 +568,13 @@
   .agent-detail-permissions .agent-detail-icon{margin-top:0}
   .agent-detail-permissions .agent-detail-item+.agent-detail-item{padding-left:10px;border-left:1px solid var(--hair)}
   .agent-detail-modes{display:flex;align-items:center;flex-wrap:wrap;gap:1px;color:var(--ink-dim)}
-  .agent-detail-modes span{padding:2px 5px}
+  .agent-detail-modes button,.agent-detail-browser-toggle{
+    min-height:24px;padding:2px 5px;border:0;border-radius:4px;background:transparent;
+    color:inherit;font:inherit;cursor:pointer;
+  }
+  .agent-detail-permissions button:not(:disabled):hover{background:var(--rail-selection);color:var(--amber)}
+  .agent-detail-permissions button:focus-visible{outline:1px solid var(--amber);outline-offset:1px}
+  .agent-detail-permissions button:disabled{opacity:.55;cursor:not-allowed}
   .agent-detail-modes .current{
     border-radius:3px;color:var(--amber);font-weight:600;background:rgb(var(--theme-accent-rgb) / .13);
   }
@@ -549,6 +587,25 @@
     justify-content:flex-end;border-color:rgb(var(--theme-local-rgb) / .35);background:rgb(var(--theme-local-rgb) / .16);
   }
   .agent-detail-switch.on::before{background:var(--ln-local)}
+  .agent-detail-browser-toggle{color:var(--ink-dim)}
+  .agent-detail-switch.unknown{justify-content:center}
+  .agent-detail-switch.unknown::before{width:8px;height:1px}
+  .agent-permission-confirm{
+    width:min(390px,calc(100vw - 24px));margin:auto;padding:16px;border:1px solid var(--hair);border-radius:10px;
+    color:var(--ink);background:var(--panel);font:13px/1.45 var(--rail-sans);
+  }
+  .agent-permission-confirm::backdrop{background:rgb(0 0 0 / .42)}
+  .agent-permission-confirm p{margin:0;overflow-wrap:anywhere}
+  .agent-permission-confirm [hidden]{display:none}
+  .agent-permission-confirm .agent-detail-permissions{margin:12px 0}
+  .agent-permission-confirm select,.agent-permission-confirm button{
+    min-height:28px;border:1px solid var(--hair);border-radius:5px;padding:2px 7px;
+    color:var(--ink);background:var(--panel-2);font:inherit;
+  }
+  .agent-permission-confirm :is(button,select):focus-visible{outline:1px solid var(--amber);outline-offset:1px}
+  .agent-permission-actions{display:flex;justify-content:flex-end;gap:6px}
+  .agent-permission-actions button{cursor:pointer}
+  .agent-permission-actions button[value="apply"]{color:var(--amber);border-color:rgb(var(--theme-accent-rgb) / .42)}
   .agent-detail-context{display:flex;flex:1;align-items:center;gap:7px;min-width:0}
   .agent-detail-context strong{font-weight:600;white-space:nowrap}
   .agent-detail-meter{flex:1;height:4px;border-radius:3px;overflow:hidden;background:rgb(var(--theme-accent-rgb) / .18)}
@@ -988,7 +1045,6 @@
   .modal-btn:hover,.modal-btn:focus-visible{border-color:var(--amber);outline:none}
   .modal-btn:disabled{opacity:.4;cursor:wait}
   /* ── settings popover: a compact, extensible home for cockpit prefs ── */
-  .settings-trigger{min-width:auto}
   .settings-popover{
     position:fixed;inset:62px 18px auto auto;width:min(360px,calc(100vw - 28px));margin:0;
     color:var(--ink);border:1px solid rgba(255,255,255,.1);border-radius:13px;
@@ -1149,10 +1205,45 @@
   .pane-out-chip .back:hover{color:var(--amber)}
   @media(max-width:1000px){
     .grid{grid-template-columns:250px 1fr}.col.mail,.mail-divider{display:none}
-    header{gap:8px;padding:0 14px}.brand .sub,.topstat:nth-of-type(2){display:none}
+    header{gap:8px;padding:0 14px}
+  }
+  @media(max-width:1100px){
+    .cockpit-header{gap:8px;padding:0 14px}
+    .brand .sub{display:none}
+    .header-status{gap:8px}
+    .usage-pill{gap:7px}
+    .crew-label,.need-label,#linkText{
+      position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);
+    }
+  }
+  @media(max-width:900px){
+    .cockpit-header{
+      display:grid;grid-template-columns:repeat(12,minmax(0,1fr));
+      gap:3px 6px;height:auto;padding:4px 12px;
+    }
+    .cockpit-header .topgap{display:none}
+    .cockpit-header .brand{grid-column:1/6;gap:7px}
+    .cockpit-header .brand-orbit{width:26px;height:26px}
+    .cockpit-header .brand .mark{font-size:18px}
+    .header-actions{grid-column:6/10;justify-self:end}
+    .cockpit-header .clock{grid-column:10/-1;justify-self:end}
+    .header-status{grid-column:1/5;grid-row:2;flex-wrap:wrap;gap:3px 5px}
+    .crew{gap:5px}
+    .usage-pill{grid-column:5/-1;grid-row:2;justify-self:end;max-width:100%;min-height:32px;flex-wrap:wrap;gap:2px 7px;padding:0}
+    .usage-pill .up-mark{width:24px;height:24px}
+    .settings-popover,.usage-popover{inset-block-start:84px;max-height:calc(100vh - 102px)}
   }
   @media(max-width:680px){
     .grid{grid-template-columns:1fr}.col.roster,.col.mail{display:none}
+  }
+  @media(max-width:360px){
+    .cockpit-header .brand .mark{font-size:16px}
+    .header-actions{gap:1px}
+    .header-action{width:26px}
+    .usage-pill{gap:2px 5px}
+    .usage-pill .up-p{gap:3px}
+    .usage-pill .up-mark{width:20px;height:20px}
+    .usage-pill .up-p b{font-size:12px}
   }
   /* Same bottom-right seat geometry as the telemetry provider badge,
      scaled from a 26px network portrait to this 46px medallion. */
@@ -1170,6 +1261,8 @@
   .local-provider-badge .provider-logo[hidden]{display:none}
   .usage-popover .up-balance-warning{color:var(--amber)}
   .usage-popover .up-balance-low{color:var(--theme-status-alert,#d2685e)}
+  .usage-popover .up-name.stale::after{content:"";display:inline-block;width:6px;height:6px;
+    margin-inline-start:6px;vertical-align:middle;border:1px solid currentColor;border-radius:50%;opacity:.55}
   .tmux-restart-notice:not(:empty){
     padding:8px 14px;border-bottom:1px solid var(--hair);
     background:var(--panel);color:var(--amber);font-size:12px;line-height:1.4;
@@ -1180,7 +1273,7 @@
 </head>
 <body>
 <div class="app">
-  <header>
+  <header class="cockpit-header">
     <div class="brand">
       <img class="brand-orbit brand-orbit-dark" src="orbit.svg" alt="" width="32" height="32">
       <img class="brand-orbit brand-orbit-light" src="orbit-light.svg" alt="" width="32" height="32">
@@ -1188,26 +1281,45 @@
       <span class="sub">agent cockpit</span>
     </div>
     <div class="topgap"></div>
-    <!-- what a person has to act on comes first, and disappears at zero;
-         the rest of the roster is two numbers, not a ratio of itself -->
-    <button class="topstat need-chip" id="needChip" type="button" hidden aria-pressed="false"
-            title="agents waiting on you — click to show only these">
-      <span class="dot"></span><span class="num" id="needCount">0</span> need you</button>
-    <div class="topstat crew" title="agents working / agents waiting"><span class="dot" id="agentDot"></span><span class="num" id="crewWork">0</span> working<span class="sep">·</span><span class="num" id="crewWait">0</span> waiting</div>
-    <!-- the backend link shows only while it is not live; a healthy cockpit says nothing -->
-    <div class="topstat link" id="linkStat" hidden><span class="dot connecting" id="linkDot"></span><span id="linkText">connecting</span></div>
-    <button class="new-agent header-utility usage-pill" id="usageBtn" type="button"
+    <div class="header-status">
+      <button class="topstat need-chip" id="needChip" type="button" hidden aria-pressed="false"
+              title="Agents waiting on you. Show only these agents.">
+        <span class="dot"></span><span class="num" id="needCount">0</span> <span class="need-label">need you</span>
+      </button>
+      <div class="topstat crew" title="Agents working and waiting">
+        <span class="crew-count">
+          <span class="crew-state" aria-hidden="true"><span class="dot" id="agentDot"></span></span>
+          <span class="num" id="crewWork">0</span> <span class="crew-label">working</span>
+        </span>
+        <span class="crew-count">
+          <span class="crew-state" aria-hidden="true">
+            <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="4.4"/><path d="M10 7.4V10l1.7 1"/></svg>
+          </span>
+          <span class="num" id="crewWait">0</span> <span class="crew-label">waiting</span>
+        </span>
+      </div>
+      <div class="topstat link" id="linkStat" title="connecting" hidden><span class="dot connecting" id="linkDot"></span><span id="linkText">connecting</span></div>
+    </div>
+    <button class="header-utility usage-pill" id="usageBtn" type="button"
             popovertarget="usagePopover" aria-haspopup="dialog"
-            aria-label="Account usage: percent left for Claude and Codex" title="Percent of each account window still left — click for every window">
-      <span class="up-k">LEFT</span><span class="up-p none" data-provider="claude"><img class="up-logo" src="assets/anthropic.svg" alt="Claude"><b>—</b></span><span class="up-p none" data-provider="codex"><img class="up-logo" src="assets/openai.svg" alt="Codex"><b>—</b></span></button>
-    <button class="new-agent header-utility settings-trigger" id="settingsBtn" type="button"
-            popovertarget="settingsPopover" aria-haspopup="dialog"
-            aria-label="Open cockpit settings" title="Cockpit settings">⚙ Settings</button>
-    <button class="new-agent header-utility" id="planetariumBtn" type="button"
-            aria-label="Open the planetarium — the whole spawn lineage"
-            title="Planetarium — who spawned whom">Planetarium</button>
-    <button class="new-agent header-utility" id="networkBtn" type="button"
-            aria-label="Open telemetry dashboard" title="Open telemetry dashboard">Telemetry</button>
+            aria-label="Usage left" title="Usage left">
+      <svg class="header-icon usage-fallback" viewBox="0 0 20 20" aria-hidden="true"><path d="M4.2 14.4a7 7 0 1 1 11.6 0M10 10l2.6-2.8"/><circle cx="10" cy="10" r="1"/></svg>
+    </button>
+    <div class="header-actions" role="group" aria-label="Cockpit views and settings">
+      <button class="header-utility header-action" id="settingsBtn" type="button"
+              popovertarget="settingsPopover" aria-haspopup="dialog"
+              aria-label="Open cockpit settings" title="Settings">
+        <svg class="header-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M9.3 3.5h1.4l.4 1.7 1.4.8 1.7-.5.7 1.2-1.2 1.2v1.6l1.2 1.2-.7 1.2-1.7-.5-1.4.8-.4 1.7H9.3l-.4-1.7-1.4-.8-1.7.5-.7-1.2 1.2-1.2V7.9L5.1 6.7l.7-1.2 1.7.5 1.4-.8z"/><circle cx="10" cy="8.7" r="1.7"/></svg>
+      </button>
+      <button class="header-utility header-action" id="planetariumBtn" type="button"
+              aria-label="Open the planetarium" title="Planetarium">
+        <svg class="header-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="9.4" r="4.2"/><ellipse cx="10" cy="9.4" rx="7" ry="2.6" transform="rotate(-34 10 9.4)"/><circle cx="15.7" cy="5.8" r=".7" fill="currentColor"/></svg>
+      </button>
+      <button class="header-utility header-action" id="networkBtn" type="button"
+              aria-label="Open telemetry dashboard" title="Telemetry">
+        <svg class="header-icon" viewBox="0 0 20 20" aria-hidden="true"><path d="m8.5 8-3-3m6.3 3 2.8-2.2M9.7 11l-3.4 3.4m5.2-3 3.1 2.9"/><circle cx="10" cy="9.5" r="2"/><circle cx="4.4" cy="4" r="1.65"/><circle cx="15.8" cy="4.8" r="1.65"/><circle cx="5" cy="15.8" r="1.65"/><circle cx="15.8" cy="15.8" r="1.65"/></svg>
+      </button>
+    </div>
     <div class="clock" id="clock">––:––:––</div>
   </header>
 
@@ -1311,6 +1423,9 @@
         </button>
       </div>
       <svg class="miniorrery" viewBox="0 0 280 120" id="orrery" hidden></svg>
+      <div class="mail-graph-divider" id="mailGraphDivider" role="separator" tabindex="0" aria-orientation="horizontal"
+           aria-controls="orrery" aria-label="Resize mini graph"
+           title="Resize mini graph with Up or Down arrows or drag. Enter or double-click to reset."></div>
       <div class="mail-selected-route" id="mailSelectedRoute" hidden></div>
       <div class="scroll" id="mail"></div>
       <!-- legend removed (2026-07-30 product decision): the design should be self-evident;
@@ -1339,6 +1454,27 @@
             <span class="settings-help">Adds a read-only Reader panel. Claude, dsh and Hermes require Telemetry API 35 or later. On by default.</span>
           </span>
           <span class="settings-switch"><input id="conversationEnabled" type="checkbox"></span>
+        </label>
+      </div>
+      <div class="settings-row">
+        <label class="settings-toggle-row" for="agentDefaultView">
+          <span class="settings-row-name">Open agents in</span>
+          <select class="settings-select" id="agentDefaultView">
+            <option value="terminal">Terminal</option>
+            <option value="reader">Reader (side panel)</option>
+            <option value="reader-full">Reader (full width)</option>
+          </select>
+        </label>
+      </div>
+      <div class="settings-row">
+        <label class="settings-toggle-row" for="readerTextSize">
+          <span class="settings-row-name">Reader text size</span>
+          <select class="settings-select" id="readerTextSize">
+            <option value="12" title="12 px">Small</option>
+            <option value="13" title="13 px">Default</option>
+            <option value="14" title="14 px">Large</option>
+            <option value="15" title="15 px">Larger</option>
+          </select>
         </label>
       </div>
       <div class="settings-row">
@@ -1378,7 +1514,7 @@
     </section>
     <section aria-labelledby="usageSettingsTitle">
       <div class="settings-section-title" id="usageSettingsTitle">Usage</div>
-      <div class="settings-help">Choose providers shown in LEFT and Usage left. Saved in this browser.</div>
+      <div class="settings-help">Choose which providers appear in the header and its usage details.</div>
       <div id="usageProviderRows"></div>
     </section>
     <section aria-labelledby="terminalSettingsTitle">
@@ -1540,6 +1676,7 @@
             <svg class="spawn-icon" aria-hidden="true"><use href="#spawn-icon-help"/></svg>
           </a>
         </div>
+        <p class="spawn-empty" id="spawnHarnessNotice" role="status" hidden></p>
         <div id="spawnHelperField" hidden>
           <select class="spawn-helper" id="spawnHelper" aria-label="Helper model" title="Helper model"><option value="same">Same as main</option></select>
         </div>
@@ -1605,7 +1742,7 @@
           {
             "property": "color",
             "selector": ".brand .sub",
-            "value": "var(--ink-faint)"
+            "value": "var(--ink-dim)"
           },
           {
             "property": "color",
@@ -1628,9 +1765,9 @@
             "value": "var(--ink-faint)"
           },
           {
-            "property": "color",
-            "selector": ".topstat .sep",
-            "value": "var(--ink-faint)"
+            "property": "outline",
+            "selector": ".crew-state #agentDot",
+            "value": "1px solid var(--hair)"
           },
           {
             "property": "color",
@@ -1650,7 +1787,7 @@
           {
             "property": "color",
             "selector": ".clock",
-            "value": "var(--ink)"
+            "value": "var(--ink-dim)"
           },
           {
             "property": "border-right",
@@ -1664,7 +1801,7 @@
           },
           {
             "property": "background",
-            "selector": ".mail-divider::after",
+            "selector": ".mail-divider::after,.mail-graph-divider::after",
             "value": "var(--ink-faint)"
           },
           {
@@ -1693,18 +1830,13 @@
             "value": "var(--ink-dim)"
           },
           {
-            "property": "border-color",
-            "selector": ".header-utility",
-            "value": "var(--hair)"
-          },
-          {
             "property": "color",
             "selector": ".header-utility",
             "value": "var(--ink-dim)"
           },
           {
             "property": "color",
-            "selector": ".header-utility:hover,.header-utility:focus-visible",
+            "selector": ".header-utility:hover,.header-utility:focus-visible,.header-utility[aria-expanded=\"true\"]",
             "value": "var(--ink)"
           },
           {
@@ -1919,8 +2051,8 @@
           },
           {
             "property": "color",
-            "selector": ".usage-pill .up-k",
-            "value": "var(--ink-faint)"
+            "selector": ".usage-pill .up-p b",
+            "value": "var(--ink)"
           },
           {
             "property": "color",
@@ -2041,6 +2173,41 @@
             "property": "background",
             "selector": ".agent-detail-switch::before",
             "value": "var(--ink-dim)"
+          },
+          {
+            "property": "color",
+            "selector": ".agent-detail-browser-toggle",
+            "value": "var(--ink-dim)"
+          },
+          {
+            "property": "border",
+            "selector": ".agent-permission-confirm",
+            "value": "1px solid var(--hair)"
+          },
+          {
+            "property": "color",
+            "selector": ".agent-permission-confirm",
+            "value": "var(--ink)"
+          },
+          {
+            "property": "background",
+            "selector": ".agent-permission-confirm",
+            "value": "var(--panel)"
+          },
+          {
+            "property": "border",
+            "selector": ".agent-permission-confirm select,.agent-permission-confirm button",
+            "value": "1px solid var(--hair)"
+          },
+          {
+            "property": "color",
+            "selector": ".agent-permission-confirm select,.agent-permission-confirm button",
+            "value": "var(--ink)"
+          },
+          {
+            "property": "background",
+            "selector": ".agent-permission-confirm select,.agent-permission-confirm button",
+            "value": "var(--panel-2)"
           },
           {
             "property": "background",
@@ -2884,6 +3051,16 @@
           },
           {
             "property": "border",
+            "selector": ".mail-clear-filter",
+            "value": "1px solid var(--hair)"
+          },
+          {
+            "property": "color",
+            "selector": ".mail-clear-filter",
+            "value": "var(--ink)"
+          },
+          {
+            "property": "border",
             "selector": ".mail-assignee-fallback",
             "value": "1px solid var(--hair)"
           },
@@ -2969,46 +3146,6 @@
           },
           {
             "property": "color",
-            "selector": ".mail-md",
-            "value": "var(--ink-dim)"
-          },
-          {
-            "property": "color",
-            "selector": ".mail-md h1,.mail-md h2,.mail-md h3,.mail-md h4",
-            "value": "var(--ink)"
-          },
-          {
-            "property": "color",
-            "selector": ".mail-md strong",
-            "value": "var(--ink)"
-          },
-          {
-            "property": "border",
-            "selector": ".mail-md code",
-            "value": "1px solid var(--hair-2)"
-          },
-          {
-            "property": "color",
-            "selector": ".mail-md code",
-            "value": "var(--ink)"
-          },
-          {
-            "property": "border",
-            "selector": ".mail-md pre",
-            "value": "1px solid var(--hair-2)"
-          },
-          {
-            "property": "color",
-            "selector": ".mail-md pre code",
-            "value": "var(--ink-dim)"
-          },
-          {
-            "property": "color",
-            "selector": ".md-marker",
-            "value": "var(--ink-faint)"
-          },
-          {
-            "property": "color",
             "selector": ".md-empty",
             "value": "var(--ink-faint)"
           },
@@ -3082,7 +3219,7 @@
           {
             "property": "color",
             "selector": ".brand .sub",
-            "value": "var(--ink-faint)"
+            "value": "var(--ink-dim)"
           },
           {
             "property": "color",
@@ -3101,17 +3238,17 @@
           },
           {
             "property": "color",
-            "selector": ".topstat .sep",
-            "value": "var(--ink-faint)"
-          },
-          {
-            "property": "color",
             "selector": ".sesschip",
             "value": "var(--ink-dim)"
           },
           {
+            "property": "color",
+            "selector": ".clock",
+            "value": "var(--ink-dim)"
+          },
+          {
             "property": "background",
-            "selector": ".mail-divider::after",
+            "selector": ".mail-divider::after,.mail-graph-divider::after",
             "value": "var(--ink-faint)"
           },
           {
@@ -3216,11 +3353,6 @@
           },
           {
             "property": "color",
-            "selector": ".usage-pill .up-k",
-            "value": "var(--ink-faint)"
-          },
-          {
-            "property": "color",
             "selector": ".usage-pill .up-p.none b",
             "value": "var(--ink-faint)"
           },
@@ -3287,6 +3419,11 @@
           {
             "property": "background",
             "selector": ".agent-detail-switch::before",
+            "value": "var(--ink-dim)"
+          },
+          {
+            "property": "color",
+            "selector": ".agent-detail-browser-toggle",
             "value": "var(--ink-dim)"
           },
           {
@@ -3606,21 +3743,6 @@
           },
           {
             "property": "color",
-            "selector": ".mail-md",
-            "value": "var(--ink-dim)"
-          },
-          {
-            "property": "color",
-            "selector": ".mail-md pre code",
-            "value": "var(--ink-dim)"
-          },
-          {
-            "property": "color",
-            "selector": ".md-marker",
-            "value": "var(--ink-faint)"
-          },
-          {
-            "property": "color",
             "selector": ".md-empty",
             "value": "var(--ink-faint)"
           },
@@ -3804,10 +3926,8 @@
         "unit": "element"
       },
       "source": {
-        "digest": "20a67f7b43b56333da3bcf5f9bdbea733b608fda36c47998ca0cd315defa95de",
+        "digest": "1acd03c4e692ed7a56da8a88e39f233cf177b94a496bf277f7fca2756966ecd3",
         "records": [
-          ".topstat\u0000font-size",
-          ".need-chip\u0000font-size",
           ".sesschip\u0000font-size",
           ".colhead\u0000font-size",
           ".colhead .tag\u0000font-size",
@@ -3820,8 +3940,6 @@
           ".bulk-count\u0000font-size",
           ".bulk-exit\u0000font-size",
           ".pill\u0000font-size",
-          ".usage-pill .up-k\u0000font-size",
-          ".usage-pill .up-p b\u0000font-size",
           ".usage-popover .up-reset\u0000font-size",
           ".usage-popover .up-quota-group-name\u0000font-size",
           ".usage-popover .dial .u\u0000font-size",
@@ -3904,12 +4022,11 @@
         "unit": "element"
       },
       "source": {
-        "digest": "631f16f19d6d38f8d2166ae245568740153afe86fe4ab966009b1b9d5371c08b",
+        "digest": "da5cc937dd20cd71a8e2543b733301511a3458ab24f3596b96f4712d05666e73",
         "records": [
           ".colhead\u0000letter-spacing",
           ".new-agent\u0000letter-spacing",
           ".bulk-exit\u0000letter-spacing",
-          ".usage-pill .up-k\u0000letter-spacing",
           ".usage-popover .up-quota-group-name\u0000letter-spacing",
           ".usage-popover .dial .lab\u0000letter-spacing",
           ".usage-popover .up-sub\u0000letter-spacing",
@@ -3936,9 +4053,9 @@
       }
     }
   },
-  "inventory_digest": "dfebc859ded5ff17f9d00f1baaff39ff109136d18a8eec582173e2453b617306",
+  "inventory_digest": "9b9bff800a6502f2f02a8108437e096a46d09bf483322f0af39011ed47c24b3e",
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "6d4c9a8d851f28533eef3435776ec7ae49101d75c975a477817f238c71fe2bb1",
+  "source_digest": "c9a8465b4a60d4570dbe08813027f02a3594ca7a7829de111c234249b82827bd",
   "surface": "cockpit",
   "version": 1
 }
@@ -4667,7 +4784,6 @@ const terminalSettingsReset=document.getElementById('terminalSettingsReset');
 const miniViewOrrery=document.getElementById('miniViewOrrery');
 const miniViewNetwork=document.getElementById('miniViewNetwork');
 const miniNetworkDepthSelect=document.getElementById('miniNetworkDepth');
-const settingsBtn=document.getElementById('settingsBtn');
 const tabsEmpty=document.createElement('span');
 tabsEmpty.className='empty';tabsEmpty.textContent='waiting for sessions…';tabsEl.appendChild(tabsEmpty);
 
@@ -4689,7 +4805,7 @@ const splitPresetByCount=new Map();
 const splitRatiosByPreset=new Map();
 const splitMultiRatiosByLayout=new Map();
 const splitDividers=[];
-let activeId=null,pendingJump=null,pendingJumpSince=0;
+let activeId=null,pendingJump=null,pendingJumpSince=0,pendingJumpReader=false;
 let splitVisible=false,focusedSplitSession=null;
 let socket=null,resizeTimer=null,stageFitFrame=null;
 let splitLabelDrag=null;
@@ -5611,9 +5727,6 @@ function themeAxisProfileLabel(values=themeAxisState.values){
   if(!axes.length)return 'A · Current';
   return axes.map(axis=>`${axis} ${formatThemeAxisValue(values[axis])}`).join(' / ');
 }
-function paintThemeAxisControls(){
-  settingsBtn.textContent='⚙ Settings';settingsBtn.title='Cockpit settings';
-}
 function postThemeAxisToTelemetry(axis,value){
   const frame=document.getElementById('networkFrame');
   if(!frame||!frame.contentWindow)return false;
@@ -5644,7 +5757,6 @@ function applyThemeAxisState({broadcast=true,negativeTrackingBaseline=false}={})
   const terminalTheme=currentTerminalTheme();
   panes.forEach(pane=>{pane.term.options.theme=terminalTheme;});
   refreshThemeAxisReports();
-  paintThemeAxisControls();
   document.dispatchEvent(new CustomEvent('oc:theme-axis',{detail:{axis,value,values:{...themeAxisState.values}}}));
   if(broadcast)postThemeAxesToTelemetry();
 }
@@ -5698,7 +5810,7 @@ function restoreThemeValuesTransaction(transaction){
   themeAxisEffectSnapshots.clear();transaction.previousEffectSnapshots.forEach((snapshot,key)=>themeAxisEffectSnapshots.set(key,snapshot));
   applyThemeAxisState({broadcast:false});
   themeAxisTransactionActive=false;finishThemeAxisSettledTransaction(transaction);
-  if(rollbackSettled)rollbackSettled();paintThemeAxisControls();
+  if(rollbackSettled)rollbackSettled();
 }
 function beginThemeValuesTransaction(values,{negativeTrackingBaseline=false}={}){
   const activeAxes=THEME_AXIS_IDS.filter(axis=>values[axis]!==null);
@@ -5741,7 +5853,7 @@ function beginThemeValuesTransaction(values,{negativeTrackingBaseline=false}={})
 }
 function commitThemeValuesTransaction(transaction){
   themeAxisCommittedState=normalizeThemeAxisState(themeAxisState);
-  themeAxisTransactionActive=false;finishThemeAxisSettledTransaction(transaction);paintThemeAxisControls();
+  themeAxisTransactionActive=false;finishThemeAxisSettledTransaction(transaction);
 }
 function setThemeAxis(axis,value){
   const nextValue=normalizeThemeAxisValue(value);
@@ -5757,7 +5869,7 @@ function setThemeAxis(axis,value){
 applyThemeAxisState({broadcast:false});
 
 function setLink(state,label){linkDot.className='dot '+state;linkText.textContent=label;
-  const stat=document.getElementById('linkStat');if(stat)stat.hidden=(state==='open');}
+  const stat=document.getElementById('linkStat');if(stat){stat.hidden=(state==='open');stat.title=label;}}
 let readerApproval=null;
 let readerActivity=null;
 function send(payload){
@@ -5776,10 +5888,13 @@ function currentTerminalFontSize(){
     splitVisible?splitSessions.length:0,
   );
 }
+function paintTerminalFontValue(size){
+  terminalFontRange.setAttribute('aria-valuetext',`${size.toFixed(1)} pixels`);
+  terminalFontValue.textContent=`${size.toFixed(1)} px`;
+}
 function paintTerminalSettings(effectiveSize=currentTerminalFontSize()){
   terminalFontRange.value=String(terminalFontSize);
-  terminalFontRange.setAttribute('aria-valuetext',`${terminalFontSize.toFixed(1)} pixels`);
-  terminalFontValue.textContent=`${terminalFontSize.toFixed(1)} px`;
+  paintTerminalFontValue(terminalFontSize);
   terminalAutoShrinkToggle.checked=terminalAutoShrink;
   const shrunk=effectiveSize!==terminalFontSize;
   terminalFontEffective.textContent=shrunk
@@ -5817,11 +5932,16 @@ function applyTerminalSettings({fit=true}={}){
   // Fit only after every xterm has the new option. queueStageFit deliberately
   // targets visible panes; hidden panes already carry the option and use the
   // same fit path when they become visible. Claimed panes then notify tmux.
-  if(fit&&panes.size)queueStageFit(activeId);
+  if(fit&&panes.size)queueStageFit();
   return effectiveSize;
 }
 terminalFontRange.addEventListener('input',()=>{
-  terminalFontSize=clampTerminalFontSize(terminalFontRange.value);
+  paintTerminalFontValue(clampTerminalFontSize(terminalFontRange.value));
+});
+terminalFontRange.addEventListener('change',()=>{
+  const size=clampTerminalFontSize(terminalFontRange.value);
+  if(size===terminalFontSize)return;
+  terminalFontSize=size;
   persistTerminalSettings();applyTerminalSettings();
 });
 const demoMaskWords=document.getElementById('demoMaskWords');
@@ -6902,13 +7022,13 @@ function closeSplitCellPane(session){
 function noteBackendClosed(session){closedByBackend.add(session);}
 // A session the backend ended is back: attach its tab again, by the usual
 // rule (no priority: with the cockpit full, nothing is displaced). Until an
-// attach goes out (the link was down, the cockpit full), it is tried again
-// with the next list; closing its tab, or closing it by hand, ends that.
+// attach is confirmed, it is tried again with the next list if needed.
+// Closing its tab by hand ends that.
 function restoreClosedSessions(availableNames){
   const available=new Set(availableNames);
   for(const session of [...closedByBackend]){
     if(manualDetached.has(session)||!sessionGroups.has(session)){closedByBackend.delete(session);continue;}
-    if(available.has(session)&&requestAttach(session))closedByBackend.delete(session);
+    if(available.has(session))requestAttach(session);
   }
 }
 function pruneSplitSessions(availableNames){
@@ -7054,11 +7174,14 @@ function createPane(session,meta){
   const host=document.createElement('div');
   host.className='termhost';host.dataset.paneId=meta.paneId;host.dataset.session=session;
   stageEl.appendChild(host);
+  const activateWebLink=(event,uri)=>{event.preventDefault();openExternalUrl(uri);};
   const term=new Terminal({
     cursorBlink:true,
     fontFamily:'"IBM Plex Mono", Menlo, Monaco, "DejaVu Sans Mono", monospace',
     fontSize:currentTerminalFontSize(),lineHeight:1.15,scrollback:6000,theme:currentTerminalTheme(),
     minimumContrastRatio:currentTerminalMinimumContrastRatio(),
+    // OSC 8 hyperlinks are handled by xterm before the plain-URL addon.
+    linkHandler:{activate:activateWebLink,allowNonHttpProtocols:false},
   });
   const fit=new FitAddon.FitAddon();
   term.loadAddon(fit);
@@ -7066,7 +7189,7 @@ function createPane(session,meta){
   // backend (the Tauri webview has no window.open handler, so a plain
   // addon default would do nothing there).
   if(window.WebLinksAddon&&WebLinksAddon.WebLinksAddon){
-    term.loadAddon(new WebLinksAddon.WebLinksAddon((event,uri)=>{event.preventDefault();openExternalUrl(uri);}));
+    term.loadAddon(new WebLinksAddon.WebLinksAddon(activateWebLink));
   }
   // Local paths in pane output: click → reveal in the file manager.
   // Single-line matches only; a path wrapped across rows is not linked.
@@ -7332,7 +7455,7 @@ function forgetSession(session,{removeGroup=true}={}){
   removeSplitSessionState(session);
   closeSessionPanes(session);
   if(removeGroup)removeSessionGroup(session);else setGroupState(session,'closed');
-  if(pendingJump===session)pendingJump=null;
+  if(pendingJump===session){pendingJump=null;pendingJumpReader=false;}
   renderStage();
 }
 function freshOutputIncomplete(msg){
@@ -7381,11 +7504,16 @@ function resetSession(msg){
   const group=ensureSessionGroup(session);
   group.incarnation=typeof msg.incarnation==='string'?msg.incarnation:null;
   group.attachGeneration=typeof msg.attachGeneration==='string'?msg.attachGeneration:null;
+  closedByBackend.delete(session);
   requestedSessions.delete(session);attachedSessions.add(session);
   setGroupState(session,'live');
   (Array.isArray(msg.panes)?msg.panes:[]).forEach(meta=>createPane(session,meta));
   refreshSessionGroup(session);
-  if(pendingJump===session){pendingJump=null;focusSession(session);}
+  if(pendingJump===session){
+    const reader=pendingJumpReader;
+    pendingJump=null;pendingJumpReader=false;focusSession(session);
+    if(reader)conversationView.open(session);
+  }
   else if(wasSplitFocus)focusSplitSession(session);
   else if(!splitVisible&&(wasActive||(activeId===null&&!paneWindowSelection)))focusSession(session);
   else renderStage();
@@ -7418,7 +7546,7 @@ function handleSessions(items){
     // resume from the NETWORK embed takes a couple of seconds to reach
     // tmux) — keep waiting through early ticks instead of giving up on
     // the first roster that doesn't list it yet.
-    else if(Date.now()-pendingJumpSince>8000){showOfflineHint(pendingJump);pendingJump=null;}
+    else if(Date.now()-pendingJumpSince>8000){showOfflineHint(pendingJump);pendingJump=null;pendingJumpReader=false;}
   }
   sortSessionGroups(names);renderStage();
   applyAutoClaims();
@@ -7471,9 +7599,9 @@ function agentHasNoTerminal(name){
   if(!rec)return false;
   return /^codex-app/.test(String(rec.cmd||''));
 }
-function jumpToSessionTarget(name,{forceFocus=false}={}){
+function jumpToSessionTarget(name,{forceFocus=false,reader=false}={}){
   if(paneWindows.has(name)){
-    pendingJump=null;terminalLessAgent=null;paneWindowSelection=name;
+    pendingJump=null;pendingJumpReader=false;terminalLessAgent=null;paneWindowSelection=name;
     activeId=null;splitVisible=false;blurTerminalFocus();
     renderStage({fit:false});resetHead();
     scrName.textContent=name;scrPath.textContent='';scrBadge.textContent='';
@@ -7481,8 +7609,11 @@ function jumpToSessionTarget(name,{forceFocus=false}={}){
     paintPaneHeading(scrName.closest('.pane-heading'),name,'live');
     promptTarget.textContent='—';promptAva.hidden=true;
     refreshComposerVocabulary();refreshHeaderStats();
-    focusPaneWindow(name);return;
+    focusPaneWindow(name);
+    if(reader)postPaneMessage({type:'open-reader',session:name});
+    return;
   }
+  pendingJumpReader=reader;
   paneWindowSelection=null;
   const decision=resolveJump(
     name,[...availableSessions.keys()],[...attachedSessions],[...requestedSessions],
@@ -7495,7 +7626,7 @@ function jumpToSessionTarget(name,{forceFocus=false}={}){
     // stay on screen, focused, and would still receive keystrokes -- naming a
     // different agent above it makes that worse, not better.  Drop the active
     // pane so renderStage paints nothing, and take focus off the terminal.
-    pendingJump=null;
+    pendingJump=null;pendingJumpReader=false;
     terminalLessAgent=name;
     if(document.activeElement&&typeof document.activeElement.blur==='function'){
       document.activeElement.blur();
@@ -7526,7 +7657,12 @@ function jumpToSessionTarget(name,{forceFocus=false}={}){
     pendingJump=name;pendingJumpSince=Date.now();return;
   }
   pendingJump=name;pendingJumpSince=Date.now();
-  if(decision.kind==='focus'){pendingJump=null;if(decision.paneId)setActive(decision.paneId,'auto',{forceFocus});else focusSession(name,{forceFocus});}
+  if(decision.kind==='focus'){
+    pendingJump=null;pendingJumpReader=false;
+    if(decision.paneId)setActive(decision.paneId,'auto',{forceFocus});
+    else focusSession(name,{forceFocus});
+    if(reader)conversationView.open(name);
+  }
   else if(decision.kind==='attach')requestAttach(name,true);
 }
 function jumpToAgent(name,event=null){
@@ -7659,6 +7795,10 @@ async function openExternalUrl(uri){
     });
     let result={};
     try{result=await response.json();}catch(_){/* HTTP status remains useful */}
+    if(result.opening_unconfirmed===true||response.status===400){
+      showToast('OPEN URL '+(result.opening_unconfirmed?'UNCONFIRMED':'REJECTED')+' · '+(result.error||'request failed'),true);
+      return false;
+    }
     if(!response.ok||!result.ok)throw new Error(result.error||`HTTP ${response.status}`);
     showToast(`URL · backend${appError?` (app: ${appError})`:''} · ${url}`);
     return true;
@@ -8129,6 +8269,7 @@ if(paneChannel)paneChannel.addEventListener('message',event=>{
   if(!paneMessageInScope(msg,paneScope))return; /* another backend's window */
   if(soloSession){
     if(msg.type==='hello'){postPaneMessage({type:'open',session:soloSession,embedded:paneEmbedded});return;}
+    if(msg.type==='open-reader'&&msg.session===soloSession){jumpToSessionTarget(soloSession,{reader:true});return;}
     if(msg.session!==soloSession||paneEmbedded)return;
     if(msg.type==='close')closeThisPaneWindow();
     else if(msg.type==='focus'){try{window.focus();postPaneMessage({type:'focused',session:soloSession,request:msg.request});}catch(_){/* no success acknowledgement */}}
@@ -8189,7 +8330,7 @@ function loadHostPlatform(){
     .then(applyHostPlatform)
     .catch(()=>{/* stays unknown: labels as on the Mac, special pastes held */});
 }
-loadHostPlatform();
+const hostPlatformReady=loadHostPlatform();
 
 function handle(msg){
   if(!msg||typeof msg.type!=='string')return;
@@ -8251,7 +8392,7 @@ function handle(msg){
       if(msg.session){
         const wasRequesting=requestedSessions.delete(msg.session);
         if(wasRequesting)setGroupState(msg.session,'error');
-        if(pendingJump===msg.session){showOfflineHint(msg.session);pendingJump=null;}
+        if(pendingJump===msg.session){showOfflineHint(msg.session);pendingJump=null;pendingJumpReader=false;}
       }
       console.warn('backend error:',msg.message);
       break;
@@ -8266,10 +8407,11 @@ function connect(){
     if(socket!==nextSocket)return;
     try{handle(JSON.parse(event.data));}catch(_){/* ignore malformed backend events */}
   });
-  nextSocket.addEventListener('close',()=>{
+  nextSocket.addEventListener('close',event=>{
     if(socket!==nextSocket)return;
     readerApproval?.disconnected();
     readerActivity?.disconnected();
+    if(event.code===1012)occupiedSessions().forEach(noteBackendClosed);
     attachedSessions.clear();requestedSessions.clear();
     sessionGroups.forEach((_,session)=>setGroupState(session,'closed'));
     refreshHeaderStats();setLink('closed','disconnected');scheduleReconnect();
@@ -8366,6 +8508,14 @@ function usageBalanceLow(prov){
   return prov.status==='ok'&&prov.balance&&prov.balance.total_balance!==null
     &&Number(usageUsd(prov.balance.total_balance,0))<USAGE_BALANCE_LOW;
 }
+function usageBalance(prov){
+  return prov.status==='ok'||prov.status==='stale'?prov.balance:null;
+}
+function usageBalanceStaleness(prov){
+  if(!prov.observed_at)return 'stale';
+  const day=new Date(prov.observed_at*1000).toLocaleDateString('en',{dateStyle:'medium'});
+  return `stale · observed ${day} ${usageClock(prov.observed_at)}`;
+}
 function usageProviderName(p){return p==='claude'?'Claude':p==='codex'?'Codex':p==='antigravity'?'Antigravity (Gemini)':p==='dsh'?'DeepSeek':p;}
 const USAGE_LOGO={claude:'assets/anthropic.svg',codex:'assets/openai.svg',antigravity:'cockpit-assets/google.svg',dsh:'cockpit-assets/deepseek.svg'};
 function usageVisibleWindows(prov){
@@ -8380,37 +8530,50 @@ function usageMainWindows(prov){
 function usageBinding(prov){
   const windows=usageMainWindows(prov);
   return windows.slice().sort((a,b)=>a.remaining_percent-b.remaining_percent)[0]||null;}
+function usageHeaderSlot(provider){
+  const slot=document.createElement('span');slot.className='up-p none';slot.dataset.provider=provider;
+  const mark=document.createElement('span');mark.className='up-mark';
+  if(provider!=='dsh')mark.innerHTML='<svg class="up-meter" viewBox="0 0 28 28" aria-hidden="true"><circle class="up-meter-track" cx="14" cy="14" r="11.5"/><circle class="up-meter-fill" cx="14" cy="14" r="11.5" pathLength="100" transform="rotate(-90 14 14)"/></svg>';
+  const logo=document.createElement('img');logo.className='up-logo';logo.src=USAGE_LOGO[provider];logo.alt=usageProviderName(provider);
+  mark.appendChild(logo);slot.append(mark,document.createElement('b'));return slot;
+}
 function renderUsagePill(){
   const pill=document.getElementById('usageBtn');
   pill.classList.toggle('stale',!!usageData&&usageData.providers.filter(usageShown).some(p=>p.status==='stale'));
-  for(const provider of ['antigravity','dsh']){
-    const reported=usageData?.providers.some(p=>p.provider===provider&&(provider!=='dsh'||p.measurement_kind==='balance'));
-    let slot=pill.querySelector(`[data-provider="${provider}"]`);
-    if(reported&&!slot){
-      slot=document.createElement('span');slot.className='up-p';slot.dataset.provider=provider;
-      const logo=document.createElement('img');logo.className='up-logo';logo.src=USAGE_LOGO[provider];logo.alt=usageProviderName(provider);
-      slot.append(logo,document.createElement('b'));pill.appendChild(slot);
-    }else if(!reported&&slot)slot.remove();
+  for(const provider of Object.keys(USAGE_LOGO)){
+    const shownByDefault=provider==='claude'||provider==='codex';
+    const reported=shownByDefault||usageData?.providers.some(p=>p.provider===provider&&(provider!=='dsh'||p.measurement_kind==='balance'));
+    const slot=pill.querySelector(`[data-provider="${provider}"]`);
+    if(reported&&!slot)pill.appendChild(usageHeaderSlot(provider));
+    else if(!reported&&slot)slot.remove();
   }
+  const values=[];
   for(const slot of pill.querySelectorAll('.up-p')){
     const prov=usageData&&usageData.providers.find(p=>p.provider===slot.dataset.provider);
     slot.hidden=usageHidden.has(slot.dataset.provider);
     const b=slot.querySelector('b');
+    const name=usageProviderName(slot.dataset.provider);
     if(prov&&prov.measurement_kind==='balance'){
-      const balance=prov.status==='ok'&&prov.balance;
+      const balance=usageBalance(prov);
+      const stale=prov.status==='stale'?usageBalanceStaleness(prov):'';
       slot.classList.toggle('none',!balance);slot.classList.toggle('warn',!!balance&&!balance.is_available);slot.classList.toggle('low',!!usageBalanceLow(prov));
       b.textContent=balance?(balance.total_balance===null?'No USD':'$'+usageUsd(balance.total_balance,0)):'$?';
-      slot.title='DeepSeek: '+(balance?(balance.total_balance===null?'no USD balance':'$'+usageUsd(balance.total_balance))
-        +' · account '+(balance.is_available?'available':'unavailable'):'balance unknown');
+      slot.title=name+': '+(balance?(balance.total_balance===null?'no USD balance':'$'+usageUsd(balance.total_balance))
+        +' · '+(stale?'last reported ':'account ')+(balance.is_available?'available':'unavailable'):'balance unknown')
+        +(stale?' · '+stale:'');
+      if(!slot.hidden)values.push(name+' '+b.textContent+(stale?' ('+stale+')':''));
       continue;
     }
     const bind=prov?usageBinding(prov):null;
     slot.classList.toggle('none',!bind);
     for(const t of ['warn','low'])slot.classList.toggle(t,!!bind&&usageTier(bind.remaining_percent)===t);
     b.textContent=bind?Math.round(bind.remaining_percent)+'%':'—';
+    setBox(slot,'--usage-left',bind?Math.max(0,Math.min(100,bind.remaining_percent)):0);
     slot.title=bind?`${usageProviderName(prov.provider)} ${bind.limit?bind.limit+' · ':''}${bind.label}: ${Math.round(bind.remaining_percent)}% left`
       +(bind.resets_at?`, resets in ${usageUntil(bind.resets_at)}`:''):(prov?USAGE_REASON[prov.reason]||'unavailable':'waiting for update');
+    if(!slot.hidden)values.push(name+' '+b.textContent);
   }
+  setAttr(pill,'aria-label',values.length?'Usage left. '+values.join(', '):'Usage left');
 }
 function usageDial(w,label=w.label){
   const R=25,C=2*Math.PI*R,tier=usageTier(w.remaining_percent);
@@ -8438,18 +8601,25 @@ function renderUsagePopover(){
     const sec=document.createElement('section');sec.className='up-prov';
     const head=document.createElement('div');head.className='up-head';
     head.innerHTML=`<span class="up-name"></span><span class="up-reset"></span>`;
-    const logo=USAGE_LOGO[prov.provider];
-    head.querySelector('.up-name').textContent=usageProviderName(prov.provider)+(prov.status==='stale'?' · stale':'');
+    const logo=USAGE_LOGO[prov.provider],name=head.querySelector('.up-name');
+    const providerName=usageProviderName(prov.provider);
+    name.textContent=providerName;
+    if(prov.status==='stale'){
+      name.classList.add('stale');
+      name.title=providerName+' · '+(prov.measurement_kind==='balance'?usageBalanceStaleness(prov):
+        prov.observed_at?`stale · observed ${usageClock(prov.observed_at)}`:'stale');
+      sec.setAttribute('aria-label',providerName+', stale');
+    }
     if(logo){const img=document.createElement('img');img.className='up-logo';img.src=logo;img.alt='';
-      head.querySelector('.up-name').prepend(img);}
+      name.prepend(img);}
     if(prov.measurement_kind==='balance'){
       head.querySelector('.up-reset').textContent=prov.observed_at?'observed '+usageClock(prov.observed_at):'not observed';
       sec.appendChild(head);
-      const balance=prov.status==='ok'&&prov.balance;
+      const balance=usageBalance(prov);
       const amount=document.createElement('div');amount.className='up-name'+(balance&&!balance.is_available?' up-balance-warning':'')+(usageBalanceLow(prov)?' up-balance-low':'');
       amount.textContent=balance?(balance.total_balance===null?'No USD balance':'$'+usageUsd(balance.total_balance)):'$?';
       const note=document.createElement('div');note.className='up-empty';
-      note.textContent=balance?'Account '+(balance.is_available?'available':'unavailable'):'Balance unavailable';
+      note.textContent=balance?(prov.status==='stale'?'Last reported ':'Account ')+(balance.is_available?'available':'unavailable'):'Balance unavailable';
       sec.append(amount,note);return sec;
     }
     const windows=usageVisibleWindows(prov);
@@ -8502,14 +8672,17 @@ function renderUsagePopover(){
   body.appendChild(foot);
 }
 async function pollUsage(force){
+  const previous=usageData;
   try{
     const r=await fetch('/telemetry/usage'+(force?'?refresh=1':''),{cache:'no-store'});
     if(!r.ok)throw new Error(String(r.status));
-    usageData=await r.json();
-  }catch(e){ /* Window snapshots retain their existing behaviour; a failed balance read is unknown. */
-    if(usageData&&usageData.providers.some(p=>p.measurement_kind==='balance')){
-      usageData={...usageData,providers:usageData.providers.map(p=>p.measurement_kind==='balance'
-        ?{...p,status:'unavailable',balance:null,reason:'telemetry_unavailable'}:p)};
+    const next=await r.json();
+    if(!Array.isArray(next?.providers))throw new Error('Invalid provider list');
+    usageData=next;
+  }catch(e){
+    if(usageData===previous&&previous){
+      usageData={...previous,providers:previous.providers.map(p=>p.measurement_kind==='balance'&&p.status==='ok'&&p.balance
+        ?{...p,status:'stale',reason:'telemetry_unavailable'}:p)};
     }
   }
   renderUsageSettings();renderUsagePill();
@@ -8524,7 +8697,7 @@ document.getElementById('usagePopover').addEventListener('toggle',e=>{
   else if(e.newState==='closed')emitFullTourAction('full-usage');});
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)pollUsage(false);});
 /* a pane window shows one terminal: no usage, lineage or mail polling there */
-if(!soloSession){pollUsage(false);setInterval(()=>{if(!document.hidden)pollUsage(false);},USAGE_POLL_MS);}
+if(!soloSession){renderUsagePill();pollUsage(false);setInterval(()=>{if(!document.hidden)pollUsage(false);},USAGE_POLL_MS);}
 
 /* ════════════════════════════════════════════════════════════════════
    LIVE TELEMETRY — roster + mail + mini-orrery, read through the unified
@@ -8751,9 +8924,10 @@ function storedRosterNames(key){
 const pinnedAgents=storedRosterNames(PINNED_AGENT_KEY),foldedAgents=storedRosterNames(ROSTER_FOLD_KEY);
 let rosterRows=[],rosterRowsByName=new Map();
 const agentDetail=document.createElement('div');
-agentDetail.id='agentDetail';agentDetail.className='agent-detail';agentDetail.setAttribute('role','tooltip');agentDetail.hidden=true;
-document.body.appendChild(agentDetail);
+agentDetail.id='agentDetail';agentDetail.className='agent-detail';agentDetail.setAttribute('role','group');
+agentDetail.setAttribute('aria-labelledby','agentDetailName');agentDetail.hidden=true;
 let detailAnchor=null,detailHideTimer=0,detailRendered='';
+let permissionChangeBusy=false,permissionApi=null,permissionApiRequest=null,permissionApiCheckedAt=-Infinity;
 let selectedAgent=null,currentAgents=[];
 const descriptorStore=RosterDescriptor.createStableDescriptorStore();
 let rosterAnnotationEpoch=0;
@@ -8763,6 +8937,7 @@ const bulkSelectedAgents=new Set();
 const BULK_ACTION_ARM_MS=3000;
 let rosterSelectMode=false,bulkActionArmed=null,bulkActionBusy=null,bulkActionArmTimer=null;
 let liveRosterAgents=[],stoppedSelectAgents=[],stoppedSelectRequest=null;
+let liveRetiredNames=new Set();
 
 function isBulkSelectableAgent(agent){
   return Boolean(agent&&agent.name&&agent.lifecycle!=='persistent'&&agent.category!=='warmup'&&
@@ -8779,6 +8954,30 @@ function selectAgent(name){selectedAgent=name;tiles.forEach((el,n)=>el.classList
   // used to follow only an activated terminal pane (2026-09-25).
   document.dispatchEvent(new CustomEvent('oc:filter-agent',{detail:{agent:name}}));}
 function currentAgentNamed(name){return currentAgents.find(agent=>agent&&agent.name===name)||null;}
+function configureReaderAgentButton(button,name){
+  const known=Boolean(name&&(!soloSession||name===soloSession)&&currentAgentNamed(name)&&!agentHasNoTerminal(name));
+  let enabled=false;
+  try{enabled=localStorage.getItem('oc-term-conversation-enabled')==='1';}catch(_){}
+  button.type='button';
+  button.classList.add('reader-agent-link');
+  button.disabled=!known||!enabled;
+  button.dataset.agentName=name;
+  const label=button.disabled?name:'Open '+name+' Reader';
+  button.title=[label,button.dataset.delivery].filter(Boolean).join(' · ');
+  if(button.disabled){
+    button.removeAttribute('aria-label');
+  }else button.ariaLabel=label;
+  if(!button.onclick)button.onclick=event=>{
+    event.stopPropagation();
+    const target=button.dataset.agentName;
+    // A roster or Reader preference can change before the next paint.
+    configureReaderAgentButton(button,target);
+    if(button.disabled)return;
+    selectAgent(target);
+    if(activeSession()===target)conversationView.open(target);
+    else jumpToSessionTarget(target,{reader:true});
+  };
+}
 function paintSplitRoles(agents){
   agents.forEach(agent=>{
     const cell=splitCells.get(agent.name);if(!cell||!cell._role)return;
@@ -8798,6 +8997,7 @@ function paintBulkTileState(el,agent){
   const eligible=isBulkSelectableAgent(agent);
   const selected=eligible&&bulkSelectedAgents.has(agent.name);
   el.classList.toggle('bulk-ineligible',rosterSelectMode&&!eligible);
+  el.classList.toggle('permission-target',rosterSelectMode&&!eligible&&!agentPermissionBlockReason(agent,permissionApi));
   el.classList.toggle('bulk-selected',rosterSelectMode&&selected);
   if(rosterSelectMode){
     el.setAttribute('aria-selected',String(selected));
@@ -8825,7 +9025,7 @@ function updateRosterBulkUI(){
     const agent=currentAgentNamed(name);
     return isBulkSelectableAgent(agent)&&isBulkExitEligibleAgent(agent);
   }).length;
-  const busy=Boolean(bulkActionBusy);
+  const busy=Boolean(bulkActionBusy||permissionChangeBusy);
   setHidden(rosterBulkBar,count===0);
   setText(rosterBulkCount,`${count} selected`);
   setText(rosterBulkExit,bulkActionBusy==='exit'?'Exiting…':
@@ -8888,11 +9088,45 @@ async function postBulkAgentAction(action,body){
     method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),
   });
   const result=await response.json().catch(()=>null);
-  if(!response.ok||!result?.ok)throw new Error(result?.error||`HTTP ${response.status}`);
+  if(!response.ok||!result?.ok){
+    const error=new Error(result?.error||`HTTP ${response.status}`);
+    error.resumeConfirmationPending=result?.resume_confirmation_pending===true;
+    throw error;
+  }
   return result;
 }
+const LIVE_AGENT_ROSTER='/telemetry/agents?scope=live';
+async function agentActionRoster(path,signal){
+  const response=await fetch(path,{cache:'no-store',signal}).catch(()=>null);
+  const roster=response?.ok?await response.json().catch(()=>null):null;
+  return Array.isArray(roster?.agents)?roster.agents:null;
+}
+// Only retry the read-only restart check. Exit and resume are never retried.
+async function permissionRestartAgent(name){
+  for(let attempt=0;attempt<2;attempt++){
+    const signal=AbortSignal.timeout(8000);
+    const response=await fetch(LIVE_AGENT_ROSTER,{cache:'no-store',signal}).catch(()=>null);
+    const roster=response?.ok?await response.json().catch(()=>null):null;
+    let reason;
+    if(Array.isArray(roster?.agents)){
+      const agent=roster.agents.find(row=>row?.name===name);
+      if(agent)return agent;
+      reason='No live roster row for the selected agent';
+    }else if(!response||signal.aborted){
+      reason=signal.aborted?'Live roster request timed out':'Live roster request failed';
+    }else if(!response.ok){
+      reason='Live roster HTTP '+response.status;
+      // An explicit client error is not evidence that retrying is safe.
+      if(response.status>=400&&response.status<500)throw new Error(reason);
+    }else{
+      reason='Live roster returned an invalid list';
+    }
+    if(attempt===1)throw new Error(reason);
+    await new Promise(resolve=>setTimeout(resolve,300));
+  }
+}
 async function runBulkExit(){
-  if(bulkActionBusy)return;
+  if(bulkActionBusy||permissionChangeBusy)return;
   const names=[...bulkSelectedAgents].filter(name=>{
     const agent=currentAgentNamed(name);
     return isBulkSelectableAgent(agent)&&isBulkExitEligibleAgent(agent);
@@ -8915,22 +9149,19 @@ async function runBulkExit(){
   // 2026-10-01 seminar looking for a bug in the wrong place.
   showToast(`BULK EXIT · ${succeeded} succeeded${failed?` · ${failed} failed — ${failures[0]}`:''}`,failed>0,failed?9000:4200);
 }
-async function waitForBulkRebootExit(name,timeoutMs=30000,pollMs=1500){
+async function waitForBulkRebootExit(name,timeoutMs=30000,pollMs=1500,confirmStopped=null){
   const controller=new AbortController();
   const deadline=performance.now()+timeoutMs;
   const timer=setTimeout(()=>controller.abort(),timeoutMs);
   try{
     while(!controller.signal.aborted){
-      const response=await fetch('/telemetry/agents?scope=live',{
-        cache:'no-store',signal:controller.signal,
-      }).catch(()=>null);
-      if(response?.ok){
-        const roster=await response.json().catch(()=>null);
-        if(Array.isArray(roster?.agents)&&!controller.signal.aborted){
-          const agent=roster.agents.find(row=>row?.name===name);
-          // The live scope omits stopped rows. Older dashboards return them.
-          const state=normalizeSearchText(agent?.category||agent?.state);
-          if(!agent||(!isBulkAgentRunning(agent)&&['finished','gone','retired'].includes(state)))return;
+      const rows=await agentActionRoster(LIVE_AGENT_ROSTER,controller.signal);
+      if(rows&&!controller.signal.aborted){
+        const agent=rows.find(row=>row?.name===name);
+        // The live scope omits stopped rows. Older dashboards return them.
+        const state=normalizeSearchText(agent?.category||agent?.state);
+        if(!agent||(!isBulkAgentRunning(agent)&&['finished','gone','retired'].includes(state))){
+          if((!confirmStopped||await confirmStopped(controller.signal))&&!controller.signal.aborted)return;
         }
       }
       const remaining=deadline-performance.now();
@@ -8941,7 +9172,7 @@ async function waitForBulkRebootExit(name,timeoutMs=30000,pollMs=1500){
   }finally{clearTimeout(timer);}
 }
 async function runBulkReboot(){
-  if(bulkActionBusy)return;
+  if(bulkActionBusy||permissionChangeBusy)return;
   const names=[...bulkSelectedAgents].filter(name=>isBulkSelectableAgent(currentAgentNamed(name)));
   if(!names.length||!confirmBulkAction('reboot'))return;
   clearBulkActionArm();bulkActionBusy='reboot';updateRosterBulkUI();
@@ -9030,6 +9261,7 @@ rosterBulkReboot.addEventListener('click',runBulkReboot);
 
 const AGENT_DETAIL_HARNESSES=new Map([['claude','Claude Code'],['codex','Codex CLI'],['dsh','dsh'],['hermes','Hermes']]);
 const AGENT_DETAIL_COMPUTER=new Map([['off','Off'],['view','View'],['control','Control']]);
+const STANDALONE_PERMISSION_API=46;
 const AGENT_DETAIL_TOKENS=new Intl.NumberFormat('en',{notation:'compact',maximumFractionDigits:1});
 const AGENT_DETAIL_ICONS={
   role:'<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M5.5 16a3.5 3.5 0 0 1 7 0m3-6h2.5m-2.5 4H18"/>',
@@ -9048,26 +9280,91 @@ const CONTEXT_HOT_PERCENT=65;
 function agentContextUsed(a){
   return Number.isFinite(a.ctx_used)&&a.ctx_used>=0&&a.ctx_used<=100?a.ctx_used:null;
 }
-function agentDetailModel(a,homeDir,hiddenChildren=[]){
+function permissionConversationOnly(a){
+  return a.resume_mode==='conversation_only'||a.mail_status==='unavailable';
+}
+function permissionCli(a){
+  return a.harness_kind==='claude'||a.harness_kind==='codex';
+}
+function agentPermissionBlockReason(a,api){
+  if(a.lifecycle==='persistent')return 'Persistent agent';
+  if(a.surface==='codex-app'||a.program==='codex-app')return 'Codex App';
+  const standalone=a.parent_state==='top'||a.parentless===true||a.standalone===true;
+  if(standalone&&!(api>=STANDALONE_PERMISSION_API))return 'Standalone agent';
+  if(permissionConversationOnly(a))return 'Conversation-only resume has no saved permissions';
+  if(!permissionCli(a)){
+    return 'Requires a Claude Code or Codex CLI child';
+  }
+  if(!(api>=45))return 'Requires Telemetry API 45';
+  if(api>=STANDALONE_PERMISSION_API&&a.permission_resume_supported!==true){
+    const reason=typeof a.permission_resume_reason==='string'&&a.permission_resume_reason.trim();
+    if(reason)return reason;
+    if(standalone)return 'No saved launch settings. Use Resume.';
+    if(a.permission_resume_supported===false)return 'Permission changes are unavailable';
+  }
+  if((!standalone&&a.parent_state!=='child')||a.history_binding!=='bound'||!a.history_session_id){
+    return standalone?'No verified conversation':'No verified child conversation';
+  }
+  if(a.category==='agent'&&a.running===true)return api>=STANDALONE_PERMISSION_API?'':'Restart requires Telemetry API 46';
+  if(a.category==='finished')return 'Exit this agent first';
+  if(a.running!==false||!['gone','retired'].includes(a.category))return 'Agent is not confirmed stopped';
+  if(!['ready','verification_required'].includes(a.resume_capability)){
+    return 'Conversation cannot be resumed';
+  }
+  return '';
+}
+function agentDetailModel(a,homeDir,hiddenChildren=[],api=null,busy=false){
   const text=value=>typeof value==='string'&&value.trim()?value:null;
   const cwd=text(a.cwd),home=homeDir?.replace(/\/+$/,'');
   const directory=cwd&&home&&(cwd===home||cwd.startsWith(home+'/'))?'~'+cwd.slice(home.length):cwd;
   return {
     name:a.name,role:text(a.annot?.role),
     parentState:a.parent_state,parent:a.parent_state==='child'?text(a.parent_agent):null,
-    computer:AGENT_DETAIL_COMPUTER.get(a.computer_use)??null,
+    computer:AGENT_DETAIL_COMPUTER.has(a.computer_use)?a.computer_use:null,
     browser:typeof a.browser_use==='boolean'?a.browser_use:null,
+    permissions:Boolean(a.harness_kind||a.lifecycle==='persistent'||a.surface==='codex-app'||permissionConversationOnly(a)||
+      a.computer_use||typeof a.browser_use==='boolean'),
+    permissionReason:agentPermissionBlockReason(a,api)||(busy?'Agent action in progress':''),
     model:text(a.model_id),harness:AGENT_DETAIL_HARNESSES.get(a.harness_kind)??null,effort:text(a.effort),
     tokens:Number.isSafeInteger(a.ctx_window_tokens)&&a.ctx_window_tokens>0?a.ctx_window_tokens:null,
     used:agentContextUsed(a),
     directory,cwd,hiddenChildren
   };
 }
+function agentDetailIcon(icon){
+  return `<svg class="agent-detail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+    stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${AGENT_DETAIL_ICONS[icon]}</svg>`;
+}
 function agentDetailItem(icon,label,body=''){
   const description=esc(label);
   return `<div class="agent-detail-item" role="group" title="${description}" aria-label="${description}">
-    <svg class="agent-detail-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
-      stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${AGENT_DETAIL_ICONS[icon]}</svg>${body}</div>`;
+    ${agentDetailIcon(icon)}${body}</div>`;
+}
+function agentDetailPermissions(detail){
+  if(!detail.permissions)return '';
+  const disabled=reason=>reason?' disabled':'';
+  const title=(label,reason)=>esc(reason?`${label} (${reason})`:label);
+  const computer=detail.computer?AGENT_DETAIL_COMPUTER.get(detail.computer):'Unknown';
+  const modes=[...AGENT_DETAIL_COMPUTER].map(([value,label])=>{
+    const reason=detail.permissionReason;
+    const current=value===detail.computer;
+    return `<button type="button" data-computer="${value}" aria-pressed="${current}"
+      aria-label="Computer use: ${label}" title="${title(`Computer use: ${label}`,reason)}"
+      ${current?'class="current"':''}${disabled(reason)}>${label}</button>`;
+  }).join('');
+  const browserLabel=`Browser use: ${detail.browser===null?'Unknown':detail.browser?'On':'Off'}`;
+  const switchState=detail.browser===null?' unknown':detail.browser?' on':'';
+  return `<div class="agent-detail-permissions" role="group" aria-label="Permissions">
+    <div class="agent-detail-item" role="group" aria-label="Computer use" title="${title(`Computer use: ${computer}`,detail.permissionReason)}">
+      ${agentDetailIcon('computer')}<span class="agent-detail-modes">${modes}</span>
+    </div>
+    <div class="agent-detail-item" title="${title(browserLabel,detail.permissionReason)}">
+      ${agentDetailIcon('browser')}<button class="agent-detail-browser-toggle" type="button" data-browser
+        ${detail.browser===null?'':`role="switch" aria-checked="${detail.browser}"`}
+        aria-label="${detail.browser===null?browserLabel:'Browser use'}" title="${title(browserLabel,detail.permissionReason)}"${disabled(detail.permissionReason)}>
+        <span class="agent-detail-switch${switchState}" aria-hidden="true"></span></button>
+    </div>
+  </div>`;
 }
 function agentDetailHTML(detail){
   const group=(name,content)=>content?`<div class="agent-detail-${name}">${content}</div>`:'';
@@ -9081,11 +9378,6 @@ function agentDetailHTML(detail){
   if(detail.parentState==='top')lineage=agentDetailItem('top','Top level');
   if(detail.parentState==='child')lineage=detail.parent?text('parent','Parent',detail.parent):agentDetailItem('parent','Child agent');
   if(detail.hiddenChildren?.length)lineage+=text('children','Hidden descendants',detail.hiddenChildren.join(', '));
-  const computer=detail.computer?agentDetailItem('computer',`Computer use: ${detail.computer}`,
-    `<span class="agent-detail-modes" aria-hidden="true">${[...AGENT_DETAIL_COMPUTER.values()].map(mode=>
-      `<span${mode===detail.computer?' class="current"':''}>${mode}</span>`).join('')}</span>`):'';
-  const browser=detail.browser===null?'':agentDetailItem('browser','Browser use: '+(detail.browser?'On':'Off'),
-    `<span class="agent-detail-switch${detail.browser?' on':''}" aria-hidden="true"></span>`);
   const context=[];
   if(detail.tokens!==null)context.push(detail.tokens.toLocaleString('en')+' tokens');
   if(detail.used!==null)context.push(detail.used+'% used');
@@ -9095,9 +9387,9 @@ function agentDetailHTML(detail){
       ${detail.used===null?'':`<span class="agent-detail-meter${detail.used>CONTEXT_HOT_PERCENT?' hot':''}" aria-hidden="true"><i style="width:${detail.used}%"></i></span><strong>${detail.used}%</strong>`}
     </span>`):'';
   const runtime=text('harness','Harness',detail.harness)+text('effort','Effort',detail.effort);
-  return `<div class="agent-detail-name">${esc(detail.name)}</div>
+  return `<div class="agent-detail-name" id="agentDetailName">${esc(detail.name)}</div>
     ${group('identity',text('role','Role',detail.role)+lineage)}
-    ${group('permissions',computer+browser)}
+    ${agentDetailPermissions(detail)}
     ${group('meta',text('model','Model',detail.model)+group('runtime',runtime)+contextRow+text('directory','Working directory',detail.directory))}`;
 }
 function positionAgentDetail(el){
@@ -9124,9 +9416,20 @@ function showAgentDetail(el){
   detailAnchor=el;
   const row=rosterRowsByName.get(a.name);
   const hiddenChildren=row?.folded?rosterRows.slice(row.index+1,row.end).map(child=>child.name):[];
-  const html=agentDetailHTML(agentDetailModel(a,hostPlatform.home_dir,hiddenChildren));
-  if(detailRendered!==html){agentDetail.innerHTML=html;detailRendered=html;}
+  const html=agentDetailHTML(agentDetailModel(a,hostPlatform.home_dir,hiddenChildren,permissionApi,
+    bulkActionBusy||permissionChangeBusy));
+  const focused=agentDetail.contains(document.activeElement)?document.activeElement:null;
+  if(el.nextElementSibling!==agentDetail)el.after(agentDetail);
+  if(detailRendered!==html){
+    agentDetail.innerHTML=html;detailRendered=html;
+    const replacement=focused?.matches('[data-browser]')?agentDetail.querySelector('[data-browser]'):
+      focused&&agentDetail.querySelector(`[data-computer="${focused.dataset.computer}"]`);
+    if(replacement?.disabled)el.focus({preventScroll:true});
+    else replacement?.focus({preventScroll:true});
+  }
+  if(agentDetail.contains(focused)&&focused!==document.activeElement)focused.focus({preventScroll:true});
   setHidden(agentDetail,false);positionAgentDetail(el);
+  if(permissionCli(a))loadPermissionApi();
 }
 function hideAgentDetail(el){
   if(detailAnchor!==el)return;
@@ -9136,26 +9439,176 @@ function hideAgentDetail(el){
 function scheduleAgentDetailHide(el){
   clearTimeout(detailHideTimer);
   detailHideTimer=setTimeout(()=>{
-    if(document.activeElement!==el&&!el.matches(':hover')&&!agentDetail.matches(':hover'))hideAgentDetail(el);
+    if(!el.contains(document.activeElement)&&!agentDetail.contains(document.activeElement)&&
+      !el.matches(':hover')&&!agentDetail.matches(':hover'))hideAgentDetail(el);
   },160);
 }
 agentDetail.addEventListener('mouseenter',()=>clearTimeout(detailHideTimer));
 agentDetail.addEventListener('mouseleave',()=>{if(detailAnchor)scheduleAgentDetailHide(detailAnchor);});
+agentDetail.addEventListener('focusout',()=>{if(detailAnchor)scheduleAgentDetailHide(detailAnchor);});
 function bindAgentDetail(el){
-  el.tabIndex=0;el.setAttribute('role','button');el.setAttribute('aria-describedby',agentDetail.id);
+  el.tabIndex=0;el.setAttribute('role','button');
   el.addEventListener('mouseenter',()=>showAgentDetail(el));
   el.addEventListener('mouseleave',()=>{if(detailAnchor===el)scheduleAgentDetailHide(el);});
-  el.addEventListener('focus',()=>showAgentDetail(el));
-  el.addEventListener('blur',()=>{if(detailAnchor===el)scheduleAgentDetailHide(el);});
+  el.addEventListener('focusin',()=>showAgentDetail(el));
+  el.addEventListener('focusout',()=>{if(detailAnchor===el)scheduleAgentDetailHide(el);});
   el.addEventListener('keydown',event=>{
     if(event.target!==el)return;
     if(event.key!=='Enter'&&event.key!==' ')return;
     event.preventDefault();handleRosterTileClick(el.dataset.agent,event);
   });
 }
-document.addEventListener('keydown',event=>{if(event.key==='Escape'&&detailAnchor)hideAgentDetail(detailAnchor);});
+document.addEventListener('keydown',event=>{
+  if(event.key!=='Escape'||!detailAnchor||permissionConfirm.open)return;
+  if(agentDetail.contains(document.activeElement))detailAnchor.focus({preventScroll:true});
+  hideAgentDetail(detailAnchor);
+});
 window.addEventListener('resize',()=>{if(detailAnchor)positionAgentDetail(detailAnchor);});
 rosterEl.addEventListener('scroll',()=>{if(detailAnchor)positionAgentDetail(detailAnchor);},{passive:true});
+
+function loadPermissionApi(refresh=false){
+  if(!refresh&&performance.now()-permissionApiCheckedAt<30000)return Promise.resolve(permissionApi);
+  permissionApiRequest??=fetch('/api/version',{cache:'no-store'})
+    .then(response=>response.ok?response.json():null)
+    .then(version=>{
+      return Number.isInteger(version?.api)?
+        (version.runtime_mode&&version.runtime_mode!=='legacy'?0:version.api):null;
+    }).catch(()=>null).then(api=>{
+      permissionApi=api;permissionApiCheckedAt=performance.now();
+      if(detailAnchor)showAgentDetail(detailAnchor);
+      return api;
+    }).finally(()=>{permissionApiRequest=null;});
+  return permissionApiRequest;
+}
+
+const permissionConfirm=document.createElement('dialog');
+permissionConfirm.className='agent-permission-confirm';
+permissionConfirm.setAttribute('aria-labelledby','permissionMessage');
+permissionConfirm.innerHTML=`<form method="dialog">
+  <p id="permissionMessage"></p>
+  <div class="agent-detail-permissions" role="group" aria-label="Permissions">
+    <div class="agent-detail-item">${agentDetailIcon('computer')}
+      <select name="computer" title="Computer use" aria-label="Computer use" required>
+        <option value="">Choose a level</option>
+        ${[...AGENT_DETAIL_COMPUTER].map(([value,label])=>`<option value="${value}">${label}</option>`).join('')}
+      </select>
+    </div>
+    <div class="agent-detail-item">${agentDetailIcon('browser')}
+      <select name="browser" title="Browser use" aria-label="Browser use" required>
+        <option value="">Choose a setting</option><option value="off">Off</option><option value="on">On</option>
+      </select>
+    </div>
+  </div>
+  <div class="agent-permission-actions">
+    <button type="submit" value="cancel" autofocus formnovalidate>Cancel</button>
+    <button type="submit" value="apply">Resume</button>
+  </div>
+</form>`;
+document.body.appendChild(permissionConfirm);
+const permissionComputer=permissionConfirm.querySelector('[name="computer"]');
+const permissionBrowser=permissionConfirm.querySelector('[name="browser"]');
+const permissionApply=permissionConfirm.querySelector('[value="apply"]');
+let pendingPermissionChange=null;
+permissionConfirm.addEventListener('keydown',event=>event.stopPropagation());
+agentDetail.addEventListener('click',event=>{
+  const button=event.target.closest('[data-computer],[data-browser]');
+  const a=currentAgentNamed(detailAnchor?.dataset.agent);
+  if(!button||button.disabled||!a||permissionConfirm.open||bulkActionBusy||permissionChangeBusy||
+    agentPermissionBlockReason(a,permissionApi))return;
+  const computer=button.dataset.computer;
+  if(computer&&computer===a.computer_use)return;
+  permissionComputer.parentElement.hidden=permissionComputer.disabled=!computer;
+  permissionBrowser.parentElement.hidden=permissionBrowser.disabled=Boolean(computer);
+  permissionComputer.value=computer||'';
+  permissionBrowser.value=typeof a.browser_use==='boolean'?(a.browser_use?'off':'on'):'';
+  pendingPermissionChange={agent:a,key:computer?'computer_use':'browser_use'};
+  const name=OrreryDemo.mask(a.name);
+  setText(permissionApply,a.running?'Restart':'Resume');
+  setText(permissionConfirm.querySelector('p'),a.running?
+    `Restart ${name} in the same conversation with this permission change? Any work in progress will be interrupted.`:
+    `Resume ${name} in the same conversation with this permission change?`);
+  permissionConfirm.showModal();
+});
+permissionConfirm.addEventListener('cancel',()=>{pendingPermissionChange=null;});
+permissionConfirm.addEventListener('submit',event=>{
+  event.preventDefault();
+  const change=pendingPermissionChange;
+  pendingPermissionChange=null;
+  permissionConfirm.close();
+  if(change&&event.submitter===permissionApply){
+    const {agent,key}=change;
+    changeAgentPermission(agent,key,key==='computer_use'?permissionComputer.value:permissionBrowser.value==='on');
+  }
+});
+function samePermissionConversation(a,b){
+  return ['history_session_id','harness_kind','parent_state','project_key'].every(key=>a[key]===b[key]);
+}
+async function confirmPermissionStop(original,api,signal){
+  // The live roster also omits finished tmux panes. Permission resumes need
+  // the retained conversation and a gone/retired row before trying jump.
+  const rows=await agentActionRoster('/telemetry/agents',signal);
+  const stopped=rows?.find(row=>row?.name===original.name);
+  if(!stopped||stopped.running!==false||!['gone','retired'].includes(stopped.category))return false;
+  if(!samePermissionConversation(stopped,original))throw new Error('The stopped conversation changed');
+  const reason=agentPermissionBlockReason(stopped,api);
+  if(reason)throw new Error(reason);
+  return true;
+}
+async function changeAgentPermission(original,key,value){
+  const {name}=original;
+  if(permissionChangeBusy||bulkActionBusy||value===original[key])return;
+  permissionChangeBusy=true;updateRosterBulkUI();
+  if(detailAnchor)showAgentDetail(detailAnchor);
+  const label=OrreryDemo.mask(name),restart=original.running===true;
+  let stage='check';
+  showToast(`Checking ${label}…`,false,65000);
+  try{
+    const api=await loadPermissionApi(true);
+    if(api===null)throw new Error('Could not check the Telemetry API');
+    if(!(api>=45))throw new Error('Requires Telemetry API 45');
+    const agent=restart?await permissionRestartAgent(name):currentAgentNamed(name);
+    if(!agent)throw new Error('Could not verify the agent in the roster');
+    if(!samePermissionConversation(agent,original)||['created','category','running',key].some(
+      key=>agent[key]!==original[key]))throw new Error('The agent changed. Choose permissions again');
+    const reason=agentPermissionBlockReason(agent,api);
+    if(reason)throw new Error(reason);
+    const permission={history_session_id:agent.history_session_id,[key]:value};
+    const jump={session:name,open_terminal:false,open:false,permission};
+    if(restart){
+      // API 45 cannot preflight saved launch settings or bind exit to the verified conversation.
+      if(!(api>=STANDALONE_PERMISSION_API))throw new Error('Restart requires Telemetry API 46');
+      const checked=await postBulkAgentAction('jump',{...jump,check_only:true});
+      if(checked.action!=='validated')throw new Error('Telemetry did not confirm this restart is available');
+      const exit={session:name,history_session_id:permission.history_session_id};
+      stage='exit';showToast(`Stopping ${label}…`,false,65000);
+      await postBulkAgentAction('exit',exit);
+      stage='wait';showToast(`Waiting for ${label} to stop…`,false,30000);
+      await waitForBulkRebootExit(name,30000,1500,signal=>confirmPermissionStop(agent,api,signal));
+    }
+    stage='resume';showToast(`Resuming ${label}…`,false,65000);
+    const result=await postBulkAgentAction('jump',jump);
+    if(result.action!=='resumed'||result.tools_changed!==true){
+      throw new Error('Telemetry did not confirm the new permissions');
+    }
+    showToast(`Resume accepted for ${label} with updated permissions.`);
+  }catch(error){
+    const reason=OrreryDemo.mask(String(error?.message||error).replace(/\s+/g,' ').trim());
+    const confirmationPending=stage==='resume'&&error?.resumeConfirmationPending;
+    const message=confirmationPending?label:{
+      check:restart?`Restart check failed for ${label}`:`Permission change failed for ${label}`,
+      exit:`Exit request failed for ${label}`,
+      wait:`Could not confirm ${label} was ready to resume`,
+      resume:restart?`${label} stopped. Resume failed`:`Resume failed for ${label}`,
+    }[stage];
+    const recovery=stage==='wait'?'\nCheck the agent in Network before resuming.':
+      stage==='resume'&&!confirmationPending?'\nUse Resume in Network if the agent is stopped.':'';
+    showToast(`${message} · ${reason}${recovery}`,true,9000);
+    toastEl.classList.add('multiline');
+  }finally{
+    permissionChangeBusy=false;updateRosterBulkUI();
+    if(detailAnchor)showAgentDetail(detailAnchor);
+  }
+}
 
 /* Writes that skip a value the node already has. A roster poll that finds
    nothing changed (most rows, most of the time) then leaves the DOM alone:
@@ -9315,14 +9768,19 @@ function handlePinToggle(name,event){
 /* The live roster (scope=live) carries the retired names on their own; a
    dashboard without scope support answers the full roster instead, whose
    rows say which are retired. */
+function isRetiredRosterAgent(agent){
+  return agent?.category==='retired'||agent?.retired===true;
+}
 function retiredNamesOf(roster){
   if(roster&&Array.isArray(roster.retired))return roster.retired.filter(name=>typeof name==='string');
-  return ((roster&&roster.agents)||[]).filter(agent=>agent&&agent.category==='retired').map(agent=>agent.name);
+  return ((roster&&roster.agents)||[]).filter(isRetiredRosterAgent).map(agent=>agent.name);
 }
 function pruneRetiredPins(roster){
+  const retiredNames=new Set(retiredNamesOf(roster));
   let dirty=false;
-  retiredNamesOf(roster).forEach(name=>{if(pinnedAgents.delete(name))dirty=true;});
+  retiredNames.forEach(name=>{if(pinnedAgents.delete(name))dirty=true;});
   if(dirty)persistPinnedAgents();
+  return retiredNames;
 }
 
 /* When did this agent last actually do something?
@@ -9563,7 +10021,9 @@ function renderRoster(){
     if(positions.has(parent))arrivalPortraits.set(a.name,parent.querySelector('.medal').getBoundingClientRect());
   }
   const seen=new Set(liveRosterAgents.map(agent=>agent.name));
-  const agents=liveRosterAgents.concat(stoppedSelectAgents.filter(agent=>!seen.has(agent.name)));
+  // A live poll can retire an agent while Select still holds older history.
+  const agents=liveRosterAgents.concat(stoppedSelectAgents.filter(agent=>
+    !seen.has(agent.name)&&!liveRetiredNames.has(agent.name)&&!isRetiredRosterAgent(agent)));
   descriptorStore.retain(agents.map(agent=>agent.name));
   agents.forEach(agent=>{agent.descriptor=descriptorStore.get(agent,agents);});
   currentAgents=agents;
@@ -9586,14 +10046,18 @@ function renderRoster(){
   if(paletteOverlay.classList.contains('on'))renderPalette();
 }
 async function loadStoppedSelectAgents(){
-  // The default roster stays live-only. Fetch finished sessions once for Select.
+  // Select also shows non-retired history for finished and resumable agents.
   const controller=new AbortController();stoppedSelectRequest=controller;
   try{
-    const response=await fetch('/telemetry/agents',{cache:'no-store',signal:controller.signal});
+    const [response,api]=await Promise.all([
+      fetch('/telemetry/agents',{cache:'no-store',signal:controller.signal}),loadPermissionApi(),
+    ]);
     if(!response.ok)return;
     const roster=await response.json();
     if(controller.signal.aborted||!Array.isArray(roster?.agents))return;
-    stoppedSelectAgents=roster.agents.filter(agent=>agent?.category==='finished'&&isBulkSelectableAgent(agent))
+    stoppedSelectAgents=roster.agents.filter(agent=>agent&&!isRetiredRosterAgent(agent)&&!liveRetiredNames.has(agent.name)&&(
+      agent.category==='finished'&&isBulkSelectableAgent(agent)||
+      agent.running===false&&!agentPermissionBlockReason(agent,api)))
       .map(prepareRosterRow);
     if(stoppedSelectAgents.length)renderRoster();
   }catch(_){/* live selections remain available if the history request fails */}
@@ -9616,8 +10080,9 @@ async function pollAgents(){
       throw new Error(String(response.status));
     }
     const d=await response.json();
-    if(annotationEpoch!==rosterAnnotationEpoch)return false;
-    pruneRetiredPins(d);
+    if(annotationEpoch!==rosterAnnotationEpoch||!Array.isArray(d?.agents))return false;
+    liveRetiredNames=pruneRetiredPins(d);
+    stoppedSelectAgents=stoppedSelectAgents.filter(agent=>!liveRetiredNames.has(agent.name));
     // warmup(warm-*/pending-*) はプール予熱でありエージェントではない。
     // 従来は名前順で最下部に沈んで見えなかったが、recency ソート導入で
     // 浮上するようになったため明示除外（claim され改名された時点で現れる）。
@@ -9706,7 +10171,7 @@ function assignLineageHues(live){
 window.OC=Object.freeze({
   esc,relTime,jumpToAgent,rootOf,providerPresentation,
   railPositions,railMoveRows,railArrive,
-  renderPeerAvatar:(name,existing)=>currentAgentNamed(name)?conversationAvatar(name,'',existing):null,
+  renderPeerAvatar:conversationPeerAvatar,configureReaderAgentButton,
   lineageHue,                       // Map: agent name -> lineage hex
   get lineageParent(){return lineageParent;},  // Map: child -> parent
   get communicationEdges(){return communicationEdges;},
@@ -10019,6 +10484,7 @@ const spawnModelSearch=document.getElementById('spawnModelSearch');
 const spawnHelper=document.getElementById('spawnHelper');
 const spawnHarnesses=document.getElementById('spawnHarnesses');
 const spawnHarnessHelp=document.getElementById('spawnHarnessHelp');
+const spawnHarnessNotice=document.getElementById('spawnHarnessNotice');
 const spawnHarnessBar=document.getElementById('spawnHarnessBar');
 const spawnTools=document.getElementById('spawnTools');
 const spawnComputerUse=document.getElementById('spawnComputerUse');
@@ -10033,6 +10499,7 @@ const ncDiceFace=document.getElementById('ncDiceFace');
 const ncName=document.getElementById('ncName');
 const ncAdjWrap=document.getElementById('ncAdjWrap');
 let spawnCatalogSignature=null;
+let spawnChooseAgain=false;
 const spawnCatalogLoader=SpawnCatalogLoader.create({
   isOpen:()=>spawnOverlay.classList.contains('on'),
   fetchCatalog:async signal=>{
@@ -10047,7 +10514,7 @@ const spawnCatalogLoader=SpawnCatalogLoader.create({
     if(signature===spawnCatalogSignature){updateSpawnAvailability();return;}
     spawnCatalogSignature=signature;
     spawnTaken=new Set(((data.naming||{}).taken||[]).map(n=>String(n).toLowerCase()));
-    renderProviderTabs();renderAgentStrip();
+    renderProviderTabs(true);renderAgentStrip();
     if(catalog)renderDirs();
     if(spawnOpenSheet)positionSpawnSheet(spawnOpenSheet,spawnOpenChip);
   },
@@ -10081,7 +10548,7 @@ function moveSpawnMarker(group,marker){
   marker.style.width=selected.offsetWidth+'px';
   marker.style.transform=`translateX(${selected.offsetLeft}px)`;
 }
-function renderProviderTabs(){
+function renderProviderTabs(keepChoice=false){
   const entries=SpawnPicker.entries(spawnCatalog);
   const providers=spawnCatalog.providers||[];
   const families=spawnFamilies.map(f=>({...f}));
@@ -10094,6 +10561,11 @@ function renderProviderTabs(){
   for(const entry of entries)if(!families.some(f=>f.id===entry.family)){
     families.push({id:entry.family,label:entry.provider.label||entry.family});
   }
+  const geminiIndex=families.findIndex(f=>f.id==='gemini');
+  if(geminiIndex>=0){
+    const [geminiFamily]=families.splice(geminiIndex,1);
+    families.splice(families.findIndex(f=>f.id==='deepseek'),0,geminiFamily);
+  }
   const hasFamily=id=>entries.some(e=>e.family===id)||providers.some(p=>SpawnPicker.family(p,{})===id);
   if(!selFamily||!hasFamily(selFamily))selFamily=(families.find(f=>hasFamily(f.id))||families[0]).id;
   providerTabs.replaceChildren(spawnProviderMarker);
@@ -10104,12 +10576,13 @@ function renderProviderTabs(){
     if(f.asset)b.append(spawnBrand(f.asset));
     else if(f.id==='local')b.append(spawnIcon('local'));
     else{
+      if(f.id==='gemini')b.append(spawnBrand('google.svg'));
       const name=document.createElement('span');name.textContent=f.label;b.append(name);
     }
     b.addEventListener('click',()=>{
       if(selFamily===f.id)return;
       selFamily=f.id;selProvider=null;selModel=null;selUrlIndex=null;selUrlKey=null;
-      selEffort=null;selHarness=null;spawnToolsRoute=null;spawnProblem='';
+      selEffort=null;selHarness=null;spawnToolsRoute=null;spawnProblem='';spawnChooseAgain=false;
       if(f.id!=='local')spawnModelSearch.value='';
       else restoreSpawnModelSearch();
       renderProviderTabs();
@@ -10118,11 +10591,21 @@ function renderProviderTabs(){
     providerTabs.append(b);
   });
   const local=selFamily==='local',choices=entries.filter(e=>e.family===selFamily);
-  spawnModelSearch.hidden=spawnModelSearchField.hidden=!local&&choices.length<spawnSearchThreshold;
+  const rowCount=selFamily==='gemini'?[...new Set(choices.map(e=>e.provider))].reduce((count,provider)=>count+
+    SpawnPicker.displayModels(provider,choices.filter(e=>e.provider===provider).map(e=>e.model)).length,0):choices.length;
+  spawnModelSearch.hidden=spawnModelSearchField.hidden=!local&&rowCount<spawnSearchThreshold;
   const hadDynamicSelection=Number.isInteger(selUrlIndex);
   let selected=choices.find(e=>e.provider.id===selProvider&&e.model.id===selModel&&
     (!Number.isInteger(e.model.url_index)||e.model.url_index===selUrlIndex)&&(!e.model.url_key||e.model.url_key===selUrlKey));
-  if(!selected&&!hadDynamicSelection)selected=choices.find(e=>e.model.default&&SpawnPicker.harnesses(e.provider,e.model).some(h=>h.available))||choices.find(e=>SpawnPicker.harnesses(e.provider,e.model).some(h=>h.available))||choices.find(e=>!e.provider.dynamic_models);
+  const offeredHarnesses=selected?SpawnPicker.harnesses(selected.provider,selected.model):[];
+  const anyAvailable=offeredHarnesses.some(h=>h.available);
+  if(keepChoice&&selModel&&(!selected||
+      (selected.model.url_index??null)!==selUrlIndex||(selected.model.url_key??null)!==selUrlKey||
+      (selHarness&&!offeredHarnesses.some(h=>h.id===selHarness&&(h.available||!anyAvailable))))){
+    // A background refresh must not switch the route of a prepared launch.
+    spawnChooseAgain=true;selected=null;spawnProblem='';
+  }
+  if(!selected&&!hadDynamicSelection&&!spawnChooseAgain)selected=choices.find(e=>e.model.default&&SpawnPicker.harnesses(e.provider,e.model).some(h=>h.available))||choices.find(e=>SpawnPicker.harnesses(e.provider,e.model).some(h=>h.available))||choices.find(e=>!e.provider.dynamic_models);
   selProvider=selected?selected.provider.id:(providers.find(p=>SpawnPicker.family(p,{})===selFamily)||{}).id||null;
   selModel=selected?selected.model.id:null;
   selUrlIndex=selected&&Number.isInteger(selected.model.url_index)?selected.model.url_index:hadDynamicSelection?selUrlIndex:null;
@@ -10154,7 +10637,7 @@ function renderLocalModels(){
     label.classList.toggle('unavailable',input.disabled);
     input.addEventListener('change',()=>{
       selProvider=entry.provider.id;selModel=entry.model.id;selUrlIndex=entry.model.url_index??null;
-      selUrlKey=entry.model.url_key??null;selEffort=null;selHarness=null;spawnProblem='';renderHarnesses();
+      selUrlKey=entry.model.url_key??null;selEffort=null;selHarness=null;spawnProblem='';spawnChooseAgain=false;renderHarnesses();
     });
     const name=document.createElement('span');name.className='model-choice-name';name.textContent=entry.model.display_name||entry.model.id;
     const note=document.createElement('span');note.className='model-choice-note';note.textContent=SpawnPicker.metadata(entry.provider,entry.model);
@@ -10196,13 +10679,32 @@ function spawnToolOptions(){
     tools:{...(mcp.length?{mcp}:{}),...(browser&&!native?{browser:{}}:{})},
   };
 }
+function spawnLocalRuntimeNotice(provider,model){
+  return !model&&provider?.dynamic_models&&SpawnPicker.needsRuntimeSetup(provider.model_error)
+    ?'Install or repair dsh or Hermes':'';
+}
 function renderHarnesses(){
   const p=providerById(selProvider),model=selectedSpawnModel();
   spawnHarnesses.replaceChildren(spawnHarnessMarker);
   const choices=p&&model?SpawnPicker.harnesses(p,model):[];
-  if(!choices.some(h=>h.id===selHarness&&h.available))selHarness=(choices.find(h=>h.default&&h.available)||choices.find(h=>h.available)||{}).id||null;
+  // Keep the selected route while its runtime is unavailable. Resetting it
+  // would also reset explicitly disabled tool switches on recovery.
+  if(!choices.some(h=>h.id===selHarness))selHarness=(choices.find(h=>h.default&&h.available)||choices.find(h=>h.available)||{}).id||null;
   spawnHarnesses.hidden=choices.length<2;
-  spawnHarnessHelp.hidden=!choices.some(h=>!h.available);
+  const localNotice=spawnLocalRuntimeNotice(p,model);
+  const blocked=choices.find(h=>h.id===selHarness&&!h.available);
+  const guide=localNotice?SpawnPicker.setupGuide({id:'dsh'}):
+    (blocked&&SpawnPicker.setupGuide(blocked))||choices.filter(h=>!h.available).map(SpawnPicker.setupGuide).find(Boolean);
+  spawnHarnessHelp.hidden=!guide;
+  if(guide){
+    spawnHarnessHelp.href=guide.url;
+    spawnHarnessHelp.title=localNotice?'dsh and Hermes setup':guide.label;
+    spawnHarnessHelp.setAttribute('aria-label',spawnHarnessHelp.title);
+  }
+  const unavailable=localNotice||(blocked?SpawnPicker.unavailableReason(blocked):
+    choices.length&&!choices.some(h=>h.available)?SpawnPicker.unavailableReason(choices[0]):'');
+  spawnHarnessNotice.textContent=unavailable;
+  spawnHarnessNotice.hidden=!unavailable;
   spawnHarnessBar.hidden=spawnHarnesses.hidden&&spawnHarnessHelp.hidden;
   choices.forEach(h=>{
     const button=document.createElement('button');button.type='button';button.className='spawn-harness';
@@ -10246,12 +10748,14 @@ function renderSpawnModelChip(){
   if(maker)spawnModelMark.append(spawnBrand(maker.asset+'.svg'));
   spawnModelMark.classList.toggle('spawn-local-maker',Boolean(maker));
   spawnModelMark.title=maker?maker.label+' · Local':'';
-  const name=model?.display_name||model?.id||'Model';
+  const modelFamily=provider?.id==='gemini'&&model?SpawnPicker.modelLabel(provider,model):'';
+  const groupedGemini=Boolean(modelFamily&&modelFamily!==model.id);
+  const name=groupedGemini?modelFamily:model?.display_name||model?.id||'Model';
   spawnModelLabel.textContent=compactSpawnModelLabel(name);
   const info=effortsForModel(provider,selModel);
   const effort=effectiveSpawnEffort(provider,selModel);
   const harness=provider&&model&&SpawnPicker.harnesses(provider,model).find(h=>h.id===selHarness);
-  const description=[name,model?.id!==name?model?.id:'',spawnModelMark.title,harness?.label,effort].filter(Boolean).join(' · ');
+  const description=[name,!groupedGemini&&model?.id!==name?model?.id:'',spawnModelMark.title,harness?.label,effort].filter(Boolean).join(' · ');
   spawnModelButton.title=description;spawnModelButton.setAttribute('aria-label','Model and effort: '+description);
   spawnPips.hidden=!info.efforts?.length;
   const index=info.efforts?.indexOf(effort)??-1;
@@ -10262,15 +10766,18 @@ function updateSpawnAvailability(){
   const provider=providerById(selProvider),model=selectedSpawnModel();
   const harnesses=provider&&model?SpawnPicker.harnesses(provider,model):[];
   const harness=harnesses.find(h=>h.id===selHarness&&h.available);
-  const unavailable=harnesses.find(h=>!h.available);
+  const unavailable=harnesses.find(h=>h.id===selHarness&&!h.available)||harnesses.find(h=>!h.available);
+  const localNotice=spawnLocalRuntimeNotice(provider,model);
   const missingEffort=provider&&model&&spawnExplicitEffortMissing(provider,selModel);
   const issue=spawnCatalog?.unavailable?'Model catalog unavailable. Open the model sheet to retry.':
+    spawnChooseAgain?'Selected model or harness is no longer available. Choose again.':
+    localNotice?localNotice+'. Open model settings for setup.':
     provider?.model_error&&!model?`${provider.model_error}. Check model settings.`:
-    model&&!harness?(unavailable?`${SpawnPicker.unavailableReason(unavailable)}. Open model settings for setup.`:'No available harness. Choose another model.'):
+    model&&!harness?(unavailable?`${SpawnPicker.unavailableReason(unavailable)}.${SpawnPicker.setupGuide(unavailable)?' Open model settings for setup.':''}`:'No available harness. Choose another model.'):
     !model&&Number.isInteger(selUrlIndex)?'Model unavailable. Choose another model.':
     missingEffort?'Choose an effort in the model sheet.':'';
   const message=spawnProblem||issue;
-  spawnSubmit.disabled=spawnBusy||!spawnTask.value.trim()||!harness||Boolean(missingEffort);
+  spawnSubmit.disabled=spawnBusy||spawnChooseAgain||!spawnTask.value.trim()||!harness||Boolean(missingEffort);
   spawnStatus.textContent=message;spawnStatus.title=message;spawnStatus.hidden=!message;
 }
 spawnModelSearch.addEventListener('input',()=>{
@@ -10340,8 +10847,13 @@ function splitOverflowModels(provider){
 }
 function renderModels(){
   const provider=providerById(selProvider)||{models:[]};
-  const models=SpawnPicker.displayModels(provider,(provider.models||[]).filter(model=>(model.locality||provider.locality||'cloud')!=='local'));
-  if(!selModel||!models.some(model=>model.id===selModel)){
+  const rows=(provider.models||[]).filter(model=>(model.locality||provider.locality||'cloud')!=='local');
+  const chosen=rows.find(model=>model.id===selModel);
+  // The fork groups effort-qualified IDs visually; keep the selected launch ID
+  // if a refresh changes which sibling appears first in that group.
+  const models=SpawnPicker.displayModels(provider,rows).map(model=>chosen&&
+    SpawnPicker.modelLabel(provider,model)===SpawnPicker.modelLabel(provider,chosen)?chosen:model);
+  if(!spawnChooseAgain&&(!selModel||!models.some(model=>model.id===selModel))){
     selModel=(models.find(model=>model.default)||models[0])?.id||null;
   }
   modelChoices.replaceChildren();
@@ -10352,7 +10864,7 @@ function renderModels(){
     const input=document.createElement('input');
     input.type='radio';input.name='spawnModel';input.value=model.id;input.checked=model.id===selModel;
     input.addEventListener('change',()=>{
-      selModel=model.id;selHarness=null;spawnProblem='';renderHarnesses();
+      selModel=model.id;selHarness=null;spawnProblem='';spawnChooseAgain=false;renderHarnesses();
     });
     const name=document.createElement('span');name.className='model-choice-name';name.textContent=SpawnPicker.modelLabel(provider,model);
     label.append(input,name);
@@ -10360,7 +10872,9 @@ function renderModels(){
     parent.appendChild(label);
   };
   if(query){
-    const matches=[...current,...older].filter(model=>model.id.toLowerCase().includes(query));
+    const matches=[...current,...older].filter(model=>model.id.toLowerCase().includes(query)||
+      (provider.id==='gemini'&&rows.some(row=>SpawnPicker.modelLabel(provider,row)===SpawnPicker.modelLabel(provider,model)&&
+        row.id.toLowerCase().includes(query))));
     matches.forEach(model=>addModel(modelChoices,model));
     if(!matches.length){
       const empty=document.createElement('p');empty.className='spawn-empty';empty.textContent='No models found. Try another name.';
@@ -10630,7 +11144,7 @@ function openSpawnModal({from=document.getElementById('newAgentBtn').getBounding
   spawnLastFocus=restoreFocus;
   if(!spawnBusy&&!spawnResumeDraft){
     spawnForm.reset();spawnTask.value=task.slice(0,spawnTask.maxLength);
-    spawnProblem='';
+    spawnProblem='';spawnChooseAgain=false;
     selScientist='';selProvider=null;selModel=null;selEffort=null;selFamily=null;selHarness=null;
     selUrlIndex=null;selUrlKey=null;spawnModelSearch.value='';
     renderSpawnTools();renderSpawnModelChip();updateNameCard();
@@ -10757,7 +11271,7 @@ function fillSpawnButton(event){
   fill.animate([{transform:'scale(0)',opacity:1},{transform:'scale(30)',opacity:0}],{duration:520,easing:'ease-out'});
 }
 async function submitSpawn(event){
-  event.preventDefault();if(spawnBusy||!spawnTask.value.trim())return;
+  event.preventDefault();if(spawnBusy||spawnChooseAgain||!spawnTask.value.trim())return;
   const p=providerById(selProvider),model=selectedSpawnModel();
   if(!p||!model||!SpawnPicker.harnesses(p,model).some(h=>h.id===selHarness&&h.available)||spawnExplicitEffortMissing(p,selModel))return;
   const payload=spawnPayloadFromForm();
@@ -10880,7 +11394,6 @@ window.addEventListener('message',e=>{
       const mutation=d.mutation||{unit:'items',expected:d.expected??0,applied:d.applied??0};
       const effect=d.effect||null;
       telemetryThemeAxisReports.set(axis,{ok:d.ok===true,source,mutation,effect,reason:d.reason||null});
-      paintThemeAxisControls();
     }
     return;
   }
@@ -11080,6 +11593,14 @@ function showSendGuard(verdict){
 function captureComposerTarget(){
   const paneId=activeId,pane=panes.get(paneId);
   return pane?{paneId,pane,session:pane.session,socket}:null;
+}
+function captureReferenceTarget(session){
+  if(session===undefined)return captureComposerTarget();
+  const current=captureComposerTarget();
+  if(current?.session===session)return current;
+  if(!splitVisible||!splitSessions.includes(session))return null;
+  const paneId=paneIdForSession(session),pane=panes.get(paneId);
+  return pane?.session===session?{paneId,pane,session,socket}:null;
 }
 function composerTargetPresent(target){
   if(panes.get(target.paneId)===target.pane&&target.pane.session===target.session&&socket===target.socket)return true;
@@ -11477,47 +11998,79 @@ document.addEventListener('visibilitychange',()=>{syncPageHidden();if(!document.
 syncPageHidden();
 kickPolls();
 </script>
+<script>
+/* Reader and the Mail drawer share these assets. Load them on first use. */
+const cockpitAssets=new Map();
+function loadCockpitAsset(tag,attribute,url){
+  if(!cockpitAssets.has(url))cockpitAssets.set(url,new Promise((resolve,reject)=>{
+    const el=document.createElement(tag);el[attribute]=url;
+    if(tag==='link')el.rel='stylesheet';
+    el.onload=resolve;el.onerror=()=>{cockpitAssets.delete(url);el.remove();reject(new Error('Could not load '+url));};
+    document.head.appendChild(el);
+  }));
+  return cockpitAssets.get(url);
+}
+function loadCockpitMarkdown(){
+  return Promise.all([loadCockpitAsset('link','href','conversation_view.css'),
+    loadCockpitAsset('script','src','conversation_source.js'),
+    loadCockpitAsset('script','src','conversation_markdown.js')]);
+}
+</script>
 <script src="orrery_view.js"></script>
 <script src="mail_view.js"></script>
 <script src="cockpit_tour.js"></script>
 <script src="cockpit_full_tour.js"></script>
 <script src="phone_settings.js"></script>
 <script>
-/* Opt-in bootstrap: no conversation assets or API calls while disabled. */
+/* The Reader loads its view and starts history reads only when enabled. */
 const conversationView=(()=>{
   const key='oc-term-conversation-enabled',setting=document.getElementById('conversationEnabled');
+  const defaultViewKey='oc-term-default-view',defaultViewSetting=document.getElementById('agentDefaultView');
+  const textSizeKey='oc-term-reader-text-size',textSizeSetting=document.getElementById('readerTextSize');
   let instance=null,loading=null;
   // On by default: a browser that never chose keeps the panel; an explicit
   // "0" (also synced through prefs) stays off.
   try{if(localStorage.getItem(key)===null)localStorage.setItem(key,'1');}catch(_){}
   const enabled=()=>{try{return localStorage.getItem(key)==='1';}catch(_){return false;}};
-  function asset(tag,attribute,url){return new Promise((resolve,reject)=>{
-    const el=document.createElement(tag);el[attribute]=url;
-    if(tag==='link')el.rel='stylesheet';
-    el.onload=resolve;el.onerror=()=>{el.remove();reject(new Error('Reader could not be loaded.'));};
-    document.head.appendChild(el);
-  });}
+  const asset=loadCockpitAsset;
+  function defaultView(){
+    try{
+      const value=localStorage.getItem(defaultViewKey);
+      return value==='reader'||value==='reader-full'?value:'terminal';
+    }
+    catch(_){return 'terminal';}
+  }
+  function syncDefaultView(){defaultViewSetting.value=defaultView();}
+  function applyTextSize(value){
+    if(value===undefined){
+      try{value=localStorage.getItem(textSizeKey);}catch(_){}
+    }
+    textSizeSetting.value=value||'13';
+    if(!textSizeSetting.value)textSizeSetting.value='13';
+    document.documentElement.style.setProperty('--reader-text-size',textSizeSetting.value+'px');
+  }
   async function ensure(){
     if(instance)return instance;
     if(!enabled())return null;
     if(loading)return loading;
     loading=(async()=>{
-      await asset('link','href','conversation_view.css');
+      await loadCockpitMarkdown();
       await asset('link','href','conversation_steps.css');
       await asset('script','src','conversation_steps.js');
-      await asset('script','src','conversation_source.js');
       await asset('script','src','conversation_preview.js');
       await asset('script','src','conversation_mail.js');
       await asset('script','src','conversation_speaker.js');
       await asset('script','src','conversation_terminal.js');
-      await asset('script','src','conversation_markdown.js');
+      await asset('script','src','conversation_motion.js');
       await asset('script','src','conversation_view.js');
       await asset('script','src','conversation_reply.js');
       await asset('script','src','reader_activity.js');
       readerReply=OrreryConversationReply.mount({host:promptInput.closest('.promptbar'),input:promptInput,
-        getTarget:captureComposerTarget,onError:text=>showToast(text,true)});
+        getTarget:captureReferenceTarget,onError:text=>showToast(text,true)});
       readerActivity=OrreryReaderActivity.mount({getPanes:()=>panes.values(),
-        getProgram:pane=>currentAgents.find(agent=>agent.name===pane.session)?.program});
+        getProgram:pane=>currentAgents.find(agent=>agent.name===pane.session)?.program,
+        getBinding:pane=>OrreryConversationSource.bindingIdentity(
+          currentAgents.find(agent=>agent.name===pane.session)||{name:pane.session})});
       await asset('link','href','reader_approval.css');
       await asset('script','src','reader_approval.js');
       readerApproval=OrreryReaderApproval.mount({
@@ -11548,6 +12101,7 @@ const conversationView=(()=>{
         frame?.addEventListener('load',wrapFrame);wrapFrame();
       }
       instance=OrreryConversation.mountWorkspace({
+        defaultView,
         getContext:(selected)=>{const name=selected||activeSession(),paneId=paneIdForSession(name);
           return {...(currentAgents.find(a=>a.name===name)||{name}),terminalPaneId:paneId,...readerActivity.current(panes.get(paneId))};},
         getSlots:()=>splitVisible?splitSessions.map(name=>({name,host:splitCells.get(name),controlHost:splitCells.get(name)?._actions})).filter(slot=>slot.host?.isConnected):[],
@@ -11557,7 +12111,8 @@ const conversationView=(()=>{
         openExternalUrl,
         renderPeerAvatar:conversationPeerAvatar,
         renderAvatar:conversationAvatar,
-        onReference:value=>readerReply.add(value),
+        configureAgentButton:configureReaderAgentButton,
+        onReference:(value,beforeFocus)=>readerReply.add(value,beforeFocus),
       });
       return instance;
     })().catch(error=>{loading=null;showToast(error.message,true);return null;});
@@ -11569,10 +12124,26 @@ const conversationView=(()=>{
     try{localStorage.setItem(key,setting.checked?'1':'0');}catch(_){}
     if(setting.checked)ensure();
   });
-  document.addEventListener('oc:prefs-changed',()=>{if(enabled())ensure();});
-  window.addEventListener('storage',event=>{if(event.key===key&&enabled())ensure();});
+  syncDefaultView();
+  defaultViewSetting.addEventListener('change',()=>{
+    try{localStorage.setItem(defaultViewKey,defaultViewSetting.value);}catch(_){syncDefaultView();}
+  });
+  applyTextSize();
+  textSizeSetting.addEventListener('change',()=>{
+    try{localStorage.setItem(textSizeKey,textSizeSetting.value);}catch(_){}
+    applyTextSize(textSizeSetting.value);
+  });
+  document.addEventListener('oc:prefs-changed',()=>{syncDefaultView();applyTextSize();if(enabled())ensure();});
+  window.addEventListener('storage',event=>{
+    if(event.key===defaultViewKey||event.key===null)syncDefaultView();
+    if(event.key===textSizeKey||event.key===null)applyTextSize();
+    if(event.key===key&&enabled())ensure();
+  });
   if(enabled())ensure();
-  return Object.freeze({ready:ensure,open:async()=>{const view=await ensure();if(view&&enabled())view.open();},
+  return Object.freeze({ready:ensure,open:async(name=null)=>{
+    const view=await ensure();
+    if(view&&enabled()&&(!name||activeSession()===name))view.open();
+  },
     close:()=>instance&&instance.close(),refresh:()=>instance&&instance.refresh()});
 })();
 </script>

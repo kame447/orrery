@@ -239,6 +239,90 @@ def test_other_providers_keep_existing_tool_groups(provider):
     assert out == {'groups':[], 'consumed':[]}
 
 
+def sleep_request(call_id='clock-sleep-fixture', namespace='clock'):
+    return dict(type='response_item', payload=dict(
+        type='function_call', namespace=namespace, name='sleep', call_id=call_id,
+        id='fc_fixture', status='completed', arguments='{"duration_ms": 3000, "secret": "PRIVATE_INPUT"}'))
+
+
+def test_codex_clock_sleep_joins_adjacent_steps_without_a_duplicate_tool_row():
+    call_id = 'clock-sleep-fixture'
+    records = [
+        native('CommandExecution', ident='shell', command=['pytest'], status='completed'),
+        sleep_request(call_id),
+        native('Extension', ident=call_id, kind='clock.sleep', durationMs=3000),
+        dict(type='response_item', payload=dict(
+            type='function_call_output', call_id=call_id, output='PRIVATE_TOOL_OUTPUT')),
+        native('Extension', ident='search', kind='web.search', query='PRIVATE_QUERY'),
+    ]
+    projected = [project(record, index) for index, record in enumerate(records)]
+    request, completion, output = projected[1:4]
+    assert output is None
+    assert completion['step']['id'] == request['sleep_call_id'] == opaque(call_id)
+    events = [event for event in projected if event is not None]
+    result = model(events, 'Codex')
+    [group] = result['groups']
+    assert [step['tool'] for step in group['steps']] == ['Shell', 'sleep', 'web_search']
+    _, sleep, search = group['steps']
+    assert sleep['eventId'] == request['id']
+    assert (sleep['started'], sleep['ended'], sleep['status']) == (1000, 4000, 'observed')
+    assert search['status'] == 'observed'
+    assert set(result['consumed']) == {event['id'] for event in events}
+    assert 'PRIVATE_' not in json.dumps(events)
+
+
+@pytest.mark.parametrize('case', ['unmatched', 'different-id', 'different-namespace', 'later-turn', 'later-message', 'ambiguous'])
+def test_codex_clock_sleep_keeps_unproven_request_visible(case):
+    request = project(sleep_request(namespace='unrelated' if case == 'different-namespace' else 'clock'), 1)
+    events = [request]
+    if case == 'later-turn':
+        events.append(project(dict(type='event_msg', payload=dict(type='task_started', turn_id='turn-two')), 2))
+    if case == 'later-message':
+        events.append(project(dict(type='response_item', payload=dict(type='message', role='user', content='New task')), 2))
+    if case == 'ambiguous':
+        events.append(project(sleep_request(), 2))
+    if case != 'unmatched':
+        events.append(project(native('Extension', ident='other' if case == 'different-id' else 'clock-sleep-fixture',
+                                     turn='turn-two' if case == 'later-turn' else 'turn-one', kind='clock.sleep'), 3))
+    result = model(events, 'Codex')
+    assert request['id'] not in result['consumed']
+    if case == 'ambiguous':
+        assert events[1]['id'] not in result['consumed']
+    assert sum(len(g['steps']) for g in result['groups']) == (case != 'unmatched')
+
+
+def test_codex_clock_sleep_does_not_pair_an_mcp_tool_of_the_same_name():
+    request = project(sleep_request(), 1)
+    other = project(native('McpToolCall', ident='clock-sleep-fixture', tool='sleep',
+                           status='completed'), 2)
+    assert 'clock_sleep' not in other['step']
+    result = model([request, other], 'Codex')
+    assert request['id'] not in result['consumed']
+    assert result['consumed'] == [other['id']]
+
+
+def test_codex_clock_sleep_does_not_pair_across_implicit_turn_change():
+    start = project(dict(type='event_msg', payload=dict(type='task_started', turn_id='turn-one')), 0)
+    request = project(sleep_request(), 1)
+    done = project(native('Extension', ident='clock-sleep-fixture', turn='turn-two', kind='clock.sleep'), 2)
+    result = model([start, request, done], 'Codex')
+    assert request['id'] not in result['consumed']
+    assert sum(len(g['steps']) for g in result['groups']) == 1
+
+
+@pytest.mark.parametrize('failed', [False, True])
+def test_codex_clock_sleep_completion_without_request_is_inert(failed):
+    event = project(native('Extension', ident='sleep-alone', kind='clock.sleep',
+                           status='failed' if failed else 'completed', result={'output': 'PRIVATE_RESULT'}))
+    assert event['step']['tool'] == 'sleep'
+    assert event['step']['status'] == ('failed' if failed else 'observed')
+    assert event['step']['detail'] == ''
+    assert 'PRIVATE_' not in json.dumps(event)
+    out = model([event], 'Codex')
+    assert out['groups'][0]['steps'][0]['eventId'] == event['id']
+    assert out['consumed'] == [event['id']]
+
+
 def test_target_summaries_do_not_copy_raw_arguments_or_commands():
     assert summary('Read',dict(file_path='/fixture/a.py',password='SECRET_VALUE')) == 'a.py'
     assert summary('Bash',dict(command='SECRET_VALUE=one curl https://secret.invalid')) == ''

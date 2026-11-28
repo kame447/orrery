@@ -157,7 +157,9 @@ def test_mail_activity_expires_but_dom_links_and_positions_remain(mini_browser):
         assert after["collisions"] == after["outside"] == []
 
 
-@pytest.mark.parametrize("selector,tree_count", [("#orrery", 3), (".planetarium-svg", 12)])
+# The fork fits the mini graph to the available rail width; six trees force
+# a real wrap and shrink even on that wider viewport. Keep the shrink assertion.
+@pytest.mark.parametrize("selector,tree_count", [("#orrery", 6), (".planetarium-svg", 12)])
 def test_component_merge_keeps_nodes_inside_shrinking_viewport_during_motion(mini_browser, selector, tree_count):
     client, evaluate = mini_browser
     pairs = [[f"A{i:02}Root", f"A{i:02}Child"] for i in range(tree_count - 1)]

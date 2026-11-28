@@ -58,6 +58,9 @@ def test_command_records_are_blocks_with_exact_copy(cockpit, text, expected):
 @pytest.mark.parametrize('text,labels,values', [
     ('<bash-stdout>a -&gt; b\n&lt;script&gt;alert(1)&lt;/script&gt; &amp;lt;</bash-stdout><bash-stderr>bad &quot;arg&quot;</bash-stderr>', ['stdout', 'stderr'], ['a -> b\n<script>alert(1)</script> &lt;', 'bad "arg"']),
     ('<local-command-stdout>status &gt; ready</local-command-stdout>', ['output'], ['status > ready']),
+    ('<local-command-stdout>\x1b[38;2;54;160;55mstatus\x1b[0m &gt; ready</local-command-stdout>'
+     '<local-command-stderr>\x9b2mwarning\x1b[22m\nstill visible</local-command-stderr>',
+     ['output','stderr'], ['status > ready','warning\nstill visible']),
 ])
 def test_output_entities_are_decoded_once_as_inert_text(cockpit, text, labels, values):
     js, wait, client = user_message(cockpit, text)
@@ -163,7 +166,8 @@ def test_adjacent_bash_records_form_one_shell_entry_and_keep_human_prose(cockpit
     wait("document.querySelector('[data-event-id=shell-in]')!==null")
     js('window.keptCommand=document.querySelector(".conversation-command");shellRows.push(...'+json.dumps(records[1:])+');conversationView.refresh()')
     wait("document.querySelector('[data-event-id=human]')!==null")
-    assert js("[...document.querySelectorAll('.conversation-event .conversation-byline')].filter(e=>getComputedStyle(e).display!=='none').map(e=>e.textContent)") == ['Shell', 'You']
+    assert js("[...document.querySelectorAll('.conversation-event .conversation-byline')].filter(e=>getComputedStyle(e).display!=='none').map(e=>e.textContent)") == ['Shell']
+    assert js("[...document.querySelectorAll('.conversation-human')].map(e=>e.getAttribute('aria-label'))") == ['You']
     assert js("document.querySelector('[data-event-id=shell-out]').classList.contains('conversation-shell-continuation')")
     assert js("[...document.querySelectorAll('.conversation-command pre code')].map(e=>e.textContent)") == ['$ printf "ready"']
     assert js("document.querySelector('[data-event-id=shell-out] pre code').textContent") == 'result -> ready'

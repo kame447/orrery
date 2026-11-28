@@ -78,6 +78,29 @@ def test_replaced_socket_is_not_retried_inside_a_refused_admission(default_serve
     assert boundary.admit("capture", session="after")["allowed"]
 
 
+def test_rebind_refuses_successor_replaced_during_global_proofs(default_server, monkeypatch):
+    binary, home, env, socket, run = default_server
+    boundary = LegacyTargetBoundary(binary, home=home, environ=env)
+    original = boundary.pin.copy()
+    run("kill-server")
+    run("new-session", "-d", "-s", "candidate", "sleep", "300")
+    global_proofs = boundary.shared["global_proofs"]
+
+    def replace_during_proof(*args, **kwargs):
+        result = global_proofs(*args, **kwargs)
+        run("kill-server")
+        run("new-session", "-d", "-s", "successor", "sleep", "300")
+        return result
+
+    with monkeypatch.context() as scoped:
+        scoped.setitem(boundary.shared, "global_proofs", replace_during_proof)
+        with pytest.raises(TargetRefused, match="^TMUX_SOCKET_CHANGED$"):
+            boundary.rebind_server()
+    assert boundary.pin == original
+    assert boundary.rebind_server()
+    assert boundary.admit("capture", session="successor")["allowed"]
+
+
 def test_recorder_rebuilds_bridges_and_preserves_new_session(default_server):
     binary, home, env, socket, run = default_server
     boundary = LegacyTargetBoundary(binary, home=home, environ=env)
@@ -207,8 +230,9 @@ def test_recovery_errors_are_rate_limited(capsys):
     assert capsys.readouterr().err.count("TMUX_SOCKET_CHANGED") == 1
 
 
+@pytest.mark.parametrize("via_manager", [True, False], ids=["manager", "direct-rebind"])
 @pytest.mark.parametrize("old_result", ["cached", "pending", "pending-error"])
-def test_rebound_server_replaces_shared_roster_for_all_waiters(monkeypatch, tmp_path, old_result):
+def test_rebound_server_replaces_shared_roster_for_all_waiters(monkeypatch, tmp_path, old_result, via_manager):
     boundary = LegacyTargetBoundary("tmux", home=tmp_path, environ={})
     boundary.shared = {}
     boundary.pin = {"server_pid": 41}
@@ -226,7 +250,9 @@ def test_rebound_server_replaces_shared_roster_for_all_waiters(monkeypatch, tmp_
         nonlocal current
         with boundary._pin_lock:
             current = "after"
-            boundary.pin = {"server_pid": 42}
+            # Model a reused PID as well as a different socket identity.
+            boundary.pin = {"server_pid": 42 if via_manager else 41}
+            boundary.generation += 1
             boundary.tmux_restarted = False
         return True
 
@@ -240,7 +266,12 @@ def test_rebound_server_replaces_shared_roster_for_all_waiters(monkeypatch, tmp_
                 assert release.wait(10), "old roster was not released"
             if old_result == "pending-error":
                 raise OSError("retired tmux server")
-        created, pid = (1, 41) if observed == "before" else (2, 42)
+        if via_manager:
+            created, pid = (1, 41) if observed == "before" else (2, 42)
+        else:
+            # An old query observed an intermediate PID, but the current
+            # consumer has re-pinned a successor with the original PID.
+            created, pid = (1, 42) if observed == "before" else (2, 41)
         return subprocess.CompletedProcess(args, 0,
             f"{observed}\t0\t1\t{created}\t{pid}\n", "")
 
@@ -259,8 +290,15 @@ def test_rebound_server_replaces_shared_roster_for_all_waiters(monkeypatch, tmp_
             assert await asyncio.to_thread(started.wait, 10), "old roster did not start"
             if old_result == "cached":
                 assert await first == rosters["before"]
-            assert await manager._recover_legacy_socket()
+            if via_manager:
+                assert await manager._recover_legacy_socket()
+            else:
+                assert await asyncio.to_thread(boundary.rebind_server)
             release.set()
+            if old_result != "cached" and not via_manager:
+                # A waiter must discard a retired reply even if no new caller
+                # has replaced the cache entry yet.
+                assert await first == rosters["after"]
             assert await ob.shared_session_list(boundary) == rosters["after"]
             if old_result != "cached":
                 assert await first == rosters["after"]
@@ -306,3 +344,84 @@ def test_stale_admission_does_not_restore_restart_warning(monkeypatch, tmp_path)
             pending.result(timeout=10)
 
     assert not boundary.tmux_restarted
+
+
+@pytest.mark.parametrize("cached", [True, False])
+def test_admission_started_before_rebind_never_targets_successor(default_server, monkeypatch, cached):
+    binary, home, env, socket, run = default_server
+    boundary = LegacyTargetBoundary(binary, home=home, environ=env)
+    if cached:
+        assert boundary.admit("capture", session="before", reuse=True)["allowed"]
+    key = "panes" if cached else "legacy_transport"
+    original = boundary.shared[key]
+    replaced = False
+
+    def rollover(*args, **kwargs):
+        nonlocal replaced
+        if replaced:
+            return original(*args, **kwargs)
+        replaced = True
+        old_rows = original(*args, **kwargs) if cached else None
+        run("kill-server")
+        run("new-session", "-d", "-s", "before", "sleep", "300")
+        assert boundary.rebind_server()
+        return old_rows if cached else original(*args, **kwargs)
+
+    with monkeypatch.context() as scoped:
+        scoped.setitem(boundary.shared, key, rollover)
+        with pytest.raises(TargetRefused, match="^TMUX_SOCKET_CHANGED$"):
+            boundary.admit("capture", session="before", reuse=cached)
+    assert replaced
+    assert not boundary.tmux_restarted
+    assert boundary.admit("capture", session="before")["allowed"]
+
+
+@pytest.mark.parametrize("finish", ["retry", "close"])
+@pytest.mark.parametrize("failure", ["stop-error", "process-still-alive"])
+def test_retirement_failure_blocks_rebind_and_retries(monkeypatch, tmp_path, failure, finish):
+    from types import SimpleNamespace
+
+    async def scenario():
+        boundary = LegacyTargetBoundary("tmux", home=tmp_path, environ={})
+        manager = SessionBridgeManager(boundary, history_dir=tmp_path)
+        events = []
+        can_stop = False
+        process = SimpleNamespace(poll=lambda: 0 if can_stop else None)
+
+        async def stop():
+            events.append("stop")
+            if failure == "stop-error" and not can_stop:
+                raise OSError("stop interrupted")
+            # Production stop consumes the guard handle even if wait timed out.
+            bridge.process = None
+
+        def rebind():
+            events.append("rebind")
+            boundary.generation += 1
+            return True
+
+        monkeypatch.setattr(boundary, "socket_replaced", lambda: True)
+        monkeypatch.setattr(boundary, "rebind_server", rebind)
+        bridge = SimpleNamespace(stop=stop, process=process, clients=set())
+        manager.states["same-name"] = ob.SessionState(bridge=bridge)
+        try:
+            assert not await manager._recover_legacy_socket()
+            assert boundary.generation == 0 and not manager.states
+            assert events == ["stop"]
+            with pytest.raises(TargetRefused, match="^TMUX_SOCKET_CHANGED$"):
+                await manager._ensure_bridge("same-name")
+            can_stop = True
+            if finish == "close":
+                await manager.close()
+                assert boundary.generation == 0
+                assert events == ["stop", "stop"]
+                assert manager._legacy_retiring is None
+            else:
+                assert await manager._recover_legacy_socket()
+                assert boundary.generation == 1
+                assert events == ["stop", "stop", "rebind"]
+        finally:
+            can_stop = True
+            await manager.close()
+
+    asyncio.run(scenario())

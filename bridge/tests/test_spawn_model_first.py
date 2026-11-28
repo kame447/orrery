@@ -198,6 +198,39 @@ def test_antigravity_provider_tab_uses_existing_gemini_logo(tour_browser):
                       'className': 'spawn-brand', 'noExtraFamily': True}
 
 
+def test_antigravity_mark_follows_catalog_and_selection(tour_browser):
+    _, evaluate = tour_browser
+    result = evaluate("""(()=>{
+      const geminiTab=()=>providerTabs.querySelector('[data-family="gemini"]');
+      const deepseek={id:'deepseek',models:[{id:'deepseek-fixture'}]};
+      const gemini={id:'gemini',label:'Antigravity',program:'antigravity',models:[{id:'gemini-fixture'}]};
+      spawnCatalog={providers:[deepseek,{id:'claude',models:[{id:'claude-fixture'}]}]};
+      selFamily=null;selProvider=null;selModel=null;selHarness=null;selEffort=null;
+      renderProviderTabs();
+      const before=Boolean(geminiTab());
+      spawnCatalog.providers.push(gemini);
+      renderProviderTabs();
+      const order=[...providerTabs.querySelectorAll('button')].map(button=>button.dataset.family);
+      const tab=geminiTab(),icon=tab.querySelector('img');
+      const mark={src:icon.getAttribute('src'),alt:icon.alt,
+        title:tab.title,label:tab.getAttribute('aria-label'),enabled:!tab.disabled};
+      tab.click();
+      const selected=selProvider;
+      spawnCatalog.providers.pop();
+      renderProviderTabs();
+      const after=Boolean(geminiTab()),fallback=selProvider;
+      spawnCatalog.providers=[deepseek,gemini];
+      renderProviderTabs();
+      return {before,mark,selected,after,fallback,order,withoutClaude:selProvider};
+    })()""")
+    assert result == {
+        'before': False, 'after': False, 'selected': 'gemini', 'fallback': 'claude',
+        'order': ['claude', 'codex', 'gemini', 'deepseek', 'local'], 'withoutClaude': 'gemini',
+        'mark': {'src': 'cockpit-assets/google.svg', 'alt': '',
+                 'title': 'Antigravity', 'label': 'Antigravity', 'enabled': True},
+    }
+
+
 def test_picker_defaults_local_search_and_capability_updates_in_browser(tour_browser):
     _, evaluate = tour_browser
     result = evaluate('''(async()=>{
@@ -694,6 +727,45 @@ def test_antigravity_picker_separates_model_family_and_effort(tour_browser):
     assert result['after']['effort'] == 'low'
     assert result['afterHint'] == 'For gemini-4-hydrogen'
     assert result['sliderMax'] == '3'
+
+
+def test_gemini_search_uses_visible_families_and_all_catalog_variants(tour_browser):
+    _, evaluate = tour_browser
+    result = evaluate('''(()=>{
+      const flash='gemini-3.8-flash',neon='gemini-4-neon';
+      const levels=['low','medium','high','xhigh'];
+      const ids=[...levels.map(x=>flash+'-'+x),...levels.map(x=>neon+'-'+x)];
+      const provider={id:'gemini',program:'antigravity',capabilities:{effort_required:true},
+        efforts:levels,models:ids.map(id=>({id,default:id===flash+'-high'})),
+        model_efforts:Object.fromEntries(ids.map(id=>[id,levels]))};
+      spawnCatalog={providers:[provider],naming:{},dirs:[]};
+      selFamily='gemini';selProvider=null;selModel=null;selHarness=null;selEffort=null;
+      selUrlIndex=null;selUrlKey=null;spawnChooseAgain=false;
+      spawnTask.value='Fixture task';spawnDirPath='/workspace';
+      renderProviderTabs();
+      const rows=()=>[...modelChoices.querySelectorAll('.model-choice-name')].map(e=>e.textContent);
+      const initial={hidden:spawnModelSearch.hidden,rows:rows(),model:selModel};
+      modelChoices.querySelector('input[value="'+neon+'-low"]').click();
+      const slider=effortChoices.querySelector('input[type=range]');
+      slider.value=slider.max;slider.dispatchEvent(new Event('input'));
+      const selected={model:spawnPayloadFromForm().model,effort:spawnPayloadFromForm().effort,
+        title:spawnModelButton.title};
+      for(let i=0;i<6;i++) {
+        const id='gemini-fixture-'+i+'-high';provider.models.push({id});provider.model_efforts[id]=['high'];
+      }
+      renderProviderTabs(true);
+      const expanded={hidden:spawnModelSearch.hidden,model:selModel,count:rows().length};
+      spawnModelSearch.value=neon+'-xhigh';spawnModelSearch.dispatchEvent(new Event('input'));
+      return {initial,selected,expanded,matches:rows(),kept:spawnPayloadFromForm().model};
+    })()''')
+    assert result['initial']==dict(hidden=True,rows=['gemini-3.8-flash','gemini-4-neon'],model='gemini-3.8-flash-high')
+    assert result['selected']['model']=='gemini-4-neon-low'
+    assert result['selected']['effort']=='xhigh'
+    assert result['selected']['title'].startswith('gemini-4-neon · ')
+    assert result['selected']['title'].endswith(' · xhigh')
+    assert result['expanded']==dict(hidden=False,model='gemini-4-neon-low',count=8)
+    assert result['matches']==['gemini-4-neon']
+    assert result['kept']=='gemini-4-neon-low'
 
 
 def test_required_effort_requires_explicit_choice_before_button_and_post(tour_browser):

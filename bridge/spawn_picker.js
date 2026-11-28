@@ -10,13 +10,35 @@
     hermes:{label:'Hermes',asset:'hermes.png'},
     dsh:{label:'dsh',asset:'dsh.svg'},
   };
+  const INSTALL_GUIDES={
+    'claude-code':{name:'Claude Code CLI',url:'https://code.claude.com/docs/en/setup'},
+    codex:{name:'Codex CLI',url:'https://github.com/openai/codex'},
+    antigravity:{name:'Antigravity CLI (agy)',url:'https://github.com/kame447/orrery-telemetry/blob/master/docs/antigravity.en.md'},
+    dsh:{name:'dsh',url:'https://github.com/kame447/orrery-telemetry/blob/master/docs/native-setup.en.md'},
+    hermes:{name:'Hermes',url:'https://github.com/kame447/orrery-telemetry/blob/master/docs/native-setup.en.md'},
+  };
   function harnessKey(id){
     const key=String(id||'').trim().toLowerCase().split('/').pop();
     return ({claude:'claude-code',claudecode:'claude-code','codex-cli':'codex','dsh-tui':'dsh'})[key]||key;
   }
   function harnessInfo(id){return HARNESS[harnessKey(id)]||{label:id,asset:null};}
+  function guideFor(harness){
+    const key=harnessKey(harness?.id);
+    const id=key==='gemini'||key==='agy'?'antigravity':key;
+    return Object.hasOwn(INSTALL_GUIDES,id)?INSTALL_GUIDES[id]:null;
+  }
+  function setupGuide(harness){
+    const guide=guideFor(harness);
+    return guide&&{label:guide.name+' setup',url:guide.url};
+  }
+  function needsRuntimeSetup(reason){
+    return ['runtime_not_prepared','plain_generation_required','runtime_version_mismatch',
+      'thin_config_unavailable'].includes(reason);
+  }
   function unavailableReason(harness){
     if(harness&&harness.available)return '';
+    const guide=guideFor(harness);
+    if(guide&&needsRuntimeSetup(harness.reason))return 'Install or repair '+guide.name;
     const messages={
       runtime_not_prepared:'Install or repair this harness',
       credential_reader_unavailable:'Prepare the OS key store',
@@ -102,5 +124,5 @@
     if(!id||agent.category&&agent.category!=='agent')return null;
     return {id:key,...harnessInfo(id)};
   }
-  return {harnessKey,harnessInfo,unavailableReason,locality,family,entries,value,modelLabel,displayModels,harnesses,helperModels,metadata,recent,remember,rosterHarness};
+  return {harnessKey,harnessInfo,unavailableReason,setupGuide,needsRuntimeSetup,locality,family,entries,value,modelLabel,displayModels,harnesses,helperModels,metadata,recent,remember,rosterHarness};
 });

@@ -446,7 +446,7 @@ filesystem browser は hidden directory を除外し、最大200件を返しま�
 
 ## Mini-orrery
 
-mini-orrery は live agent の spawn forest と、直近90秒の mail edge / comet を表示します。
+mini-orrery は live agent の spawn forest と記録済みの通信関係を表示し、直近90秒の通信を強調します。Mail が届くたびに comet を表示します。
 
 - node click で agent / session へ jump
 - node hover で identity、role、model を表示

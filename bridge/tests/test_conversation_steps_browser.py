@@ -117,6 +117,37 @@ def test_historical_turn_starts_folded_and_failure_is_not_inferred_from_prose(co
     assert js("[...document.querySelectorAll('.conversation-step-outcome')].map(n=>n.textContent)")==['','Observed','Failed']
 
 
+@pytest.mark.parametrize('cockpit', [False, True], indirect=True, ids=['desktop', 'phone'])
+def test_files_from_separate_steps_pack_and_wrap_below_the_heading(cockpit):
+    rows = events('codex')
+    labels = ['reader-before.png', 'reader-after.png', 'reader-before-and-after-measurements.txt']
+    for index, label in enumerate(labels):
+        row = project(native('McpToolCall', ident='show-'+str(index), server='orrery-mail',
+                             tool='show_files', status='completed'), 11+index)
+        row['references'] = [dict(id=f'{index:032d}', kind='file', label=label)]
+        rows.append(row)
+    rows.append(project(dict(type='event_msg', payload=dict(type='task_complete',
+                                                            turn_id='turn-one', duration_ms=12000)), 15))
+    js, wait, _ = prepare(cockpit, 'codex', rows=rows, working=False)
+    geometry = js("""(()=>{
+      const card=document.querySelector('.conversation-steps');
+      const buttons=[...document.querySelectorAll('.conversation-step-record .conversation-file')];
+      const [first,second,third]=buttons.map(button=>button.getBoundingClientRect());
+      return {underHeading:first.top-card.getBoundingClientRect().bottom, sameLine:first.top===second.top,
+        horizontalGap:second.left-first.right, wrappedGap:third.top-first.bottom,
+        fits:third.right<=card.getBoundingClientRect().right,
+        closed:card.querySelector('.conversation-steps-toggle').getAttribute('aria-expanded')==='false'};
+    })()""")
+    assert geometry['closed'] and geometry['fits']
+    assert 0 <= geometry['underHeading'] <= 6
+    assert geometry['sameLine'] and 0 < geometry['horizontalGap'] <= 8
+    assert 0 < geometry['wrappedGap'] <= 8
+    js("""OrreryConversationSource.Source.prototype.reference=async()=>({kind:'text',text:'Recorded file.'});
+          document.querySelectorAll('.conversation-step-record .conversation-file')[1].click()""")
+    wait("document.querySelector('.conversation-preview-title')?.textContent==='reader-after.png'")
+    wait("document.querySelector('.conversation-preview-text')?.textContent==='Recorded file.'")
+
+
 def test_append_keeps_existing_row_selection_and_earlier_pair_fills_without_duplicate(cockpit):
     rows=events('claude')
     js,wait,client=prepare(cockpit,'claude',rows=rows)
@@ -261,3 +292,40 @@ def test_stopped_unpaired_claude_call_survives_prompt_then_late_result(cockpit,t
     js("document.querySelector('.conversation-steps:not([hidden]) .conversation-steps-toggle').click()")
     capture('matched')
     assert js("packets.filter(p=>p.type==='input')")==[]
+
+
+def test_updated_native_step_preserves_row_and_unchanged_target_selection(cockpit):
+    rows = events('codex')
+    correction = project(native('CommandExecution', ident='one', command=['pytest'],
+                                status='failed', exit_code=1), 11)
+    js, _, _, _, enable = cockpit
+    enable(count=1)
+    js("""window.stepHost=document.createElement('div');document.body.append(stepHost);
+      window.stepFixture=OrreryConversationSteps.mount({host:stepHost});
+      window.stepRows=""" + json.dumps(rows) + """;
+      window.syncFixture=()=>stepFixture.sync({events:stepRows,provider:'Codex',
+        mode:'cursor',rows:[],context:{running:true,act_state:'work'},isVisible:false});
+      syncFixture();
+      window.retainedStep=stepHost.querySelector('.conversation-step');
+      window.retainedTarget=retainedStep.querySelector('.conversation-step-target').firstChild;
+      const range=document.createRange();range.selectNodeContents(retainedTarget);
+      getSelection().removeAllRanges();getSelection().addRange(range);""")
+    assert js("getSelection().toString()") == 'pytest'
+    js("stepRows.push(" + json.dumps(correction) + ");syncFixture()")
+    assert js("stepHost.querySelectorAll('.conversation-step').length") == 1
+    assert js("stepHost.querySelector('.conversation-step-icon').classList.contains('failed')")
+    assert js("retainedStep===stepHost.querySelector('.conversation-step')")
+    assert js("retainedTarget===retainedStep.querySelector('.conversation-step-target').firstChild")
+    assert js("getSelection().toString()") == 'pytest'
+    updated = project(native('CommandExecution', ident='one', command=['node'],
+                             status='completed', exit_code=0), 12)
+    cleared = project(native('CommandExecution', ident='one', command=[],
+                             status='completed', exit_code=0), 13)
+    js("stepRows.push(" + json.dumps(updated) + ");syncFixture()")
+    assert js("retainedStep===stepHost.querySelector('.conversation-step')")
+    assert js("retainedStep.querySelector('.conversation-step-target').textContent") == 'node'
+    assert js("retainedStep.querySelector('.conversation-step-icon').classList.contains('done')")
+    js("stepRows.push(" + json.dumps(cleared) + ");syncFixture()")
+    assert js("retainedStep===stepHost.querySelector('.conversation-step')")
+    assert not js("Boolean(retainedStep.querySelector('.conversation-step-target'))")
+    js("stepFixture.reset();stepHost.remove()")

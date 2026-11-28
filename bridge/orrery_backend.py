@@ -10,6 +10,7 @@ import collections
 import contextlib
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -27,6 +28,10 @@ from pathlib import Path
 from collections.abc import Mapping
 from typing import Any
 from urllib.parse import quote, urlencode
+
+# Manual and desktop launches can reach this entry point without the shell check.
+if __name__ == "__main__" and sys.version_info < (3, 11):
+    raise SystemExit("Python 3.11 or newer is required.")
 
 from aiohttp import (
     ClientConnectorError,
@@ -50,9 +55,9 @@ from usage_probe import (
     UsageCache,
     provider_from_quota_payload,
 )
-from conversation_history import (HistoryUnavailable, UnchangedPolls, bound_agent, bound_signature, open_reader)
+from conversation_history import (HistoryUnavailable, UnchangedPolls, bound_agent, bound_signature, conversation_binding, open_reader)
 from conversation_mail import received as recorded_mail
-from conversation_preview import ReferenceStore, PreviewUnavailable, clicked_path, binding as conversation_binding
+from conversation_preview import ReferenceStore, PreviewUnavailable, clicked_path
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8791
@@ -650,6 +655,7 @@ CONVERSATION_REFERENCES_KEY = web.AppKey("conversation_references", ReferenceSto
 TMUX_BIN_KEY = web.AppKey("tmux_bin", LegacyTargetBoundary)
 USAGE_CACHE_KEY = web.AppKey("usage_cache", UsageCache)
 USAGE_LOCKS_KEY = web.AppKey("usage_locks", dict)
+USAGE_LOG = logging.getLogger("orrery.usage")
 PREFS_PATH = Path(os.path.expanduser(os.environ.get("ORRERY_PREFS_PATH") or "~/.orrery/prefs.json"))
 PREFS_LOCK_KEY = web.AppKey("prefs_lock", asyncio.Lock)
 PROXY_INFLIGHT_KEY = web.AppKey("proxy_inflight", dict)
@@ -817,16 +823,21 @@ async def serve_usage(request: web.Request) -> web.Response:
     )
 
 
-async def _usage_from_dashboard(request: web.Request, cache) -> list[ProviderUsage]:
+async def _usage_from_dashboard(request: web.Request, cache: UsageCache) -> list[ProviderUsage]:
     """Read `/api/quotas`, or answer from what was last seen."""
     http_session = request.app[HTTP_SESSION_KEY]
     payload: Any = None
+    received = False
     try:
         async with http_session.get(DASHBOARD_URL + "/api/quotas") as response:
             if response.status == 200:
                 payload = await response.json(content_type=None)
-    except (ClientError, asyncio.TimeoutError, ValueError):
-        payload = None
+                received = True
+            else:
+                USAGE_LOG.warning("Telemetry /api/quotas returned HTTP %d", response.status)
+    except (ClientError, asyncio.TimeoutError, ValueError) as exc:
+        payload, received = None, False
+        USAGE_LOG.warning("Telemetry /api/quotas read failed (%s)", type(exc).__name__)
 
     entries = payload.get("providers") if isinstance(payload, Mapping) else None
     by_provider = {
@@ -836,21 +847,33 @@ async def _usage_from_dashboard(request: web.Request, cache) -> list[ProviderUsa
     }
 
     if isinstance(entries, list):
-        cache.reported_providers = tuple(p for p in ("antigravity", "dsh") if p in by_provider)
+        reported = [p for p in ("antigravity", "dsh") if p in by_provider]
+        omitted = "dsh" in cache.reported_providers and "dsh" not in by_provider
+        if omitted:
+            USAGE_LOG.warning("Telemetry /api/quotas omitted DeepSeek")
+            last_balance = cache.last("dsh")
+            if not cache.balance_omitted and last_balance is not None and last_balance.balance is not None:
+                reported.append("dsh")
+        cache.balance_omitted = omitted and "dsh" in reported
+        cache.reported_providers = tuple(reported)
+    elif received:
+        USAGE_LOG.warning("Telemetry /api/quotas returned an invalid provider list")
+
+    reason = "provider_not_reported" if isinstance(entries, list) else "telemetry_unavailable"
     snapshots: list[ProviderUsage] = []
     for provider in USAGE_PROVIDERS + cache.reported_providers:
         entry = by_provider.get(provider)
         if entry is not None:
-            snapshots.append(cache.put(provider_from_quota_payload(entry), time.time()))
+            snapshot = provider_from_quota_payload(entry)
+            if provider == "dsh" and snapshot.balance is None:
+                USAGE_LOG.warning("Telemetry /api/quotas reported no DeepSeek balance")
+            snapshots.append(cache.put(snapshot, time.time()))
             continue
-        last = cache.last(provider) if hasattr(cache, "last") else None
-        snapshot = last if last is not None else ProviderUsage(
-            provider, "unavailable", None,
-            reason="telemetry_unavailable" if payload is None else "provider_not_reported")
+        last = cache.last(provider, balance_reason=reason)
+        snapshot = last if last is not None else ProviderUsage(provider, "unavailable", None, reason=reason)
         # Replace old observations so an ordinary request cannot revive them
         # as current. With nothing observed yet, let the next request retry.
-        snapshots.append(cache.put(snapshot, time.time())
-                         if last is not None or snapshot.measurement_kind == "balance" else snapshot)
+        snapshots.append(cache.put(snapshot, time.time()) if last is not None else snapshot)
     return snapshots
 
 
@@ -921,11 +944,12 @@ def list_tmux_sessions(tmux_bin: str) -> list[dict[str, Any]]:
                 catalog_truncated=tmux_bin.truncated,**target.ref))
         return sessions
     # A concurrent first pin must not turn an older roster reply into a warning.
-    watched_pid = None
+    watched_pid = watched_generation = None
     if isinstance(tmux_bin, LegacyTargetBoundary):
         with tmux_bin._pin_lock:
             if tmux_bin.pin is not None:
                 watched_pid = tmux_bin.pin['server_pid']
+                watched_generation = tmux_bin.generation
     result = subprocess.run(
         tmux_argv(tmux_bin, "list-sessions", "-F", SESSION_FORMAT),
         capture_output=True,
@@ -953,6 +977,7 @@ def list_tmux_sessions(tmux_bin: str) -> list[dict[str, Any]]:
             if watched_pid is not None:
                 with tmux_bin._pin_lock:
                     if (tmux_bin.pin is not None
+                            and tmux_bin.generation == watched_generation
                             and tmux_bin.pin['server_pid'] == watched_pid):
                         tmux_bin.observe_server_pid(
                             int(server_pid) if server_pid.isdecimal() else None)
@@ -975,7 +1000,7 @@ def list_tmux_sessions(tmux_bin: str) -> list[dict[str, Any]]:
 
 
 SESSION_LIST_SHARE_SECONDS = 2.0
-_session_list_shared: dict[Any, tuple[float, "asyncio.Task[list[dict[str, Any]]]"]] = {}
+_session_list_shared: dict[Any, tuple[float, "asyncio.Task[list[dict[str, Any]]]", int | None]] = {}
 
 
 async def shared_session_list(tmux_bin) -> list[dict[str, Any]]:
@@ -989,28 +1014,38 @@ async def shared_session_list(tmux_bin) -> list[dict[str, Any]]:
     session that appears is still seen within that much of the ordinary beat.
     """
     key = tmux_bin if isinstance(tmux_bin, str) else id(tmux_bin)
+
+    def legacy_generation():
+        return tmux_bin.generation if isinstance(tmux_bin, LegacyTargetBoundary) else None
+
     while True:
         now = time.monotonic()
         shared = _session_list_shared.get(key)
+        generation = legacy_generation()
         if (
             shared is None
             or shared[1].get_loop() is not asyncio.get_running_loop()
+            or shared[2] != generation
             or (shared[1].done() and now - shared[0] >= SESSION_LIST_SHARE_SECONDS)
         ):
             task = asyncio.ensure_future(asyncio.to_thread(list_tmux_sessions, tmux_bin))
-            _session_list_shared[key] = shared = (now, task)
+            _session_list_shared[key] = shared = (now, task, generation)
             # a failure is also shared for that long, but never kept beyond it
             task.add_done_callback(lambda finished: finished.cancelled() or finished.exception())
         try:
             sessions = await asyncio.shield(shared[1])
         except Exception:
-            if _session_list_shared.get(key) is not shared:
-                continue
-            raise
-        # A rebind can retire this entry while its subprocess is running.
-        # Existing waiters must also use the newly verified server's roster.
+            if (_session_list_shared.get(key) is shared
+                    and generation == legacy_generation()):
+                raise
+        else:
+            if (_session_list_shared.get(key) is shared
+                    and generation == legacy_generation()):
+                return sessions
+        # Even a direct rebind (without manager invalidation) retires old
+        # results and errors. Never remove a newer caller's shared task.
         if _session_list_shared.get(key) is shared:
-            return sessions
+            _session_list_shared.pop(key)
 
 
 def invalidate_shared_session_list(tmux_bin) -> None:
@@ -1171,6 +1206,7 @@ class SessionBridgeManager:
         self._rebind_error: tuple[str, float] | None = None
         self._legacy_epoch = 0
         self._legacy_peer_epoch: dict[Any, int] = {}
+        self._legacy_retiring: list[tuple[SessionState, subprocess.Popen | None]] | None = None
 
     def _log_attach_error(self, session: str, exc: Exception) -> None:
         reason = str(exc) if isinstance(exc, TargetRefused) else type(exc).__name__
@@ -1194,22 +1230,27 @@ class SessionBridgeManager:
         if not isinstance(boundary, LegacyTargetBoundary):
             return True
         try:
-            if not await asyncio.to_thread(boundary.socket_replaced):
-                return True
+            if (self._legacy_retiring is None
+                    and not await asyncio.to_thread(boundary.socket_replaced)
+                    and self._legacy_retiring is None):
+                return not self._closed
             async with self._lock:
                 if self._closed:
                     return False
-                if not await asyncio.to_thread(boundary.socket_replaced):
-                    return True
-                obsolete = list(self.states.values())
-                self.states.clear()
-                # A pane ID or session name may be reused on the new server;
-                # invalidate every earlier WebSocket attachment generation.
-                self._legacy_epoch += 1
-                # Old pane IDs can recur on the next server. Force each
-                # attached browser peer to reconnect and request a new proof.
-                # Close only the cockpit websockets, never the agent sessions.
-                peers = {peer for state in obsolete for peer in state.bridge.clients}
+                if self._legacy_retiring is None:
+                    if not await asyncio.to_thread(boundary.socket_replaced):
+                        return True
+                    self._legacy_retiring = [
+                        (state, state.bridge.process) for state in self.states.values()
+                    ]
+                    self.states.clear()
+                    self._legacy_epoch += 1
+                    invalidate_shared_session_list(boundary)
+
+                # Keep failed retirements, including the original guard handle,
+                # until stop succeeds and the guard has actually exited.
+                retiring = self._legacy_retiring
+                peers = {peer for state, _ in retiring for peer in state.bridge.clients}
                 async def close_peer(peer):
                     response = getattr(peer, "response", None)
                     if response is not None:
@@ -1217,13 +1258,22 @@ class SessionBridgeManager:
                             code=1012, message=b"tmux server restarted"), timeout=2)
                 await asyncio.gather(*(close_peer(peer) for peer in peers),
                                      return_exceptions=True)
-                await asyncio.gather(
-                    *(self._stop_bridge(state) for state in obsolete),
+                # Window claims belong to the retired server, not a same-name
+                # replacement. Stop only the manager-owned control clients.
+                results = await asyncio.gather(
+                    *(state.bridge.stop() for state, _ in retiring),
                     return_exceptions=True,
                 )
+                self._legacy_retiring = [
+                    (state, process) for (state, process), result in zip(retiring, results)
+                    if isinstance(result, BaseException)
+                    or (process is not None and process.poll() is None)
+                ]
+                if self._legacy_retiring:
+                    raise TargetRefused("TMUX_CONTROL_RETIRE_FAILED")
                 rebound = await asyncio.to_thread(boundary.rebind_server)
-                if rebound:
-                    invalidate_shared_session_list(boundary)
+                invalidate_shared_session_list(boundary)
+                self._legacy_retiring = None
             if rebound:
                 print("ORRERY recorder revalidated a restarted tmux server",
                       file=sys.stderr, flush=True)
@@ -1334,6 +1384,8 @@ class SessionBridgeManager:
         async with self._lock:
             if self._closed:
                 return None
+            if self._legacy_retiring is not None:
+                raise TargetRefused("TMUX_SOCKET_CHANGED")
             state = self.states.get(session)
             if state is not None:
                 return state
@@ -1455,6 +1507,12 @@ class SessionBridgeManager:
         except TargetRefused as exc:
             await send_error(peer, session, str(exc))
             return
+        # Recorder reconciliation can retire sessions before the peer sees
+        # the roster change. Count only its current live bridges.
+        attached.intersection_update(
+            name for name, state in self.states.items()
+            if not state.bridge._closed and peer in state.bridge.clients
+        )
         if session in attached:
             state = self.states.get(session)
             if state is not None and peer in state.bridge.clients:
@@ -1821,12 +1879,15 @@ class SessionBridgeManager:
             states = list(self.states.values())
             self.states.clear()
             self._legacy_peer_epoch.clear()
+            retiring = self._legacy_retiring or []
+            self._legacy_retiring = None
         if roster_task is not None:
             roster_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await roster_task
         await asyncio.gather(
             *(self._stop_bridge(state) for state in states),
+            *(state.bridge.stop() for state, _ in retiring),
             return_exceptions=True,
         )
 
@@ -2417,8 +2478,8 @@ async def conversation_full_read(request, name, query, cursor, limit, polls, sta
         await asyncio.to_thread(manager.__exit__,None,None,None)
     result.setdefault('mode','cursor')
     if polls is not None:
-        polls.remember_row(name,row,inode,checked)
-        polls.remember(name,row,result,signature,checked,digest,provider=provider,fingerprint=fingerprint)
+        polls.remember_row(name,current,inode,checked)
+        polls.remember(name,current,result,signature,checked,digest,provider=provider,fingerprint=fingerprint)
     for index,event in enumerate(result['events']):
         event=recorded_mail(event);result['events'][index]=event
     empty=(cursor is not None and query.get('before') is None and not result['events']
@@ -3358,7 +3419,7 @@ def host_platform() -> dict[str, Any]:
         problem = wsl_terminal_problem()
         terminal = {"kind": "wt", "label": "Windows Terminal",
                     "available": problem is None, "reason": problem}
-        interop = bool(windows_exe("explorer.exe") or shutil.which("wslview"))
+        interop = bool(windows_exe("explorer.exe") or shutil.which("wslview") or windows_powershell())
     else:
         # Mac and plain Linux keep the Ghostty route they always had.
         terminal = {"kind": "ghostty", "label": "Ghostty",
@@ -3580,8 +3641,13 @@ def wsl_interop_problem() -> str | None:
     return None
 
 
+class OpenerUnconfirmed(OSError):
+    """The opener may have delivered the request, but did not confirm it."""
+
+
 def run_opener(
-    argv: list[str], *, trust_exit_status: bool = True, confirm: bool = False
+    argv: list[str], *, trust_exit_status: bool = True, confirm: bool = False,
+    input_data: bytes | None = None,
 ) -> None:
     """Run `open`/`xdg-open` and raise OSError if it reports a failure.
 
@@ -3601,21 +3667,21 @@ def run_opener(
     wsl = host_kind() == "wsl"
     proc = subprocess.Popen(
         argv,
-        stdin=subprocess.DEVNULL,
+        stdin=subprocess.PIPE if input_data is not None else subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         start_new_session=True,
         env=wsl_interop_env() if wsl else None,
     )
     try:
-        _, err = proc.communicate(timeout=OPENER_WAIT_SECONDS)
+        _, err = proc.communicate(input=input_data, timeout=OPENER_WAIT_SECONDS)
     except subprocess.TimeoutExpired as exc:
         # Whatever it said before the wait ran out still counts.
         detail = (exc.stderr or b"").decode("utf-8", "replace").strip()
         if wsl and WSL_INTEROP_FAILURE_RE.search(detail):
             raise OSError(f"{argv[0]} did not start: {detail[:300]}") from None
         if confirm:
-            raise OSError(
+            raise OpenerUnconfirmed(
                 f"{argv[0]} did not finish within {OPENER_WAIT_SECONDS:g} s; "
                 "whether it opened is not confirmed"
             ) from None
@@ -3632,19 +3698,43 @@ def run_opener(
         raise OSError(message)
 
 
+# The URL reaches PowerShell as literal UTF-8 on stdin, so quoting, percent
+# escapes and query delimiters do not pass through a Windows command parser.
+_WINDOWS_OPEN_URL_PS = """
+if (([System.Diagnostics.Process]::GetCurrentProcess().SessionId -eq 0) -or
+    (-not [Environment]::UserInteractive)) {
+    throw 'The backend cannot reach the Windows desktop. Start it from Windows Terminal.'
+}
+[Console]::InputEncoding = [System.Text.UTF8Encoding]::new($false)
+Start-Process -FilePath ([Console]::In.ReadToEnd()) -ErrorAction Stop
+"""
+
+
 def launch_url(url: str) -> None:
     """Hand a web URL to the OS default browser (Windows' browser under WSL)."""
     kind = host_kind()
     if kind == "mac":
         run_opener(["open", url])
     elif kind == "wsl":
-        if shutil.which("wslview"):
-            run_opener(["wslview", url])
-            return
-        explorer = windows_exe("explorer.exe")
-        if not explorer:
-            raise OSError("no way to reach Windows from WSL: neither wslview nor explorer.exe was found")
-        run_opener([explorer, url], trust_exit_status=False)
+        if problem := wsl_interop_problem():
+            raise OSError(problem)
+        wslview = shutil.which("wslview")
+        powershell = windows_powershell()
+        if wslview:
+            try:
+                run_opener([wslview, url], confirm=True)
+                return
+            except OpenerUnconfirmed:
+                # It may already have opened a tab. Do not automatically retry.
+                raise
+            except OSError:
+                if not powershell:
+                    raise
+        if not powershell:
+            raise OSError("cannot open the Windows browser: neither wslview nor powershell.exe was found")
+        command = base64.b64encode(_WINDOWS_OPEN_URL_PS.encode("utf-16-le")).decode("ascii")
+        run_opener([powershell, "-NoProfile", "-NonInteractive", "-EncodedCommand", command],
+                   input_data=url.encode("utf-8"), confirm=True)
     else:
         run_opener(["xdg-open", url])
 
@@ -3672,13 +3762,20 @@ async def open_url(request: web.Request) -> web.Response:
         return web.json_response({"ok": False, "error": "url is required"}, status=400)
     if any(ch.isspace() or ord(ch) < 32 for ch in url):
         return web.json_response({"ok": False, "error": "url contains whitespace"}, status=400)
-    parts = urllib.parse.urlsplit(url)
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return web.json_response({"ok": False, "error": "invalid URL"}, status=400)
     if parts.scheme not in ("http", "https") or not parts.netloc:
         return web.json_response(
             {"ok": False, "error": "only http(s) URLs can be opened"}, status=400
         )
     try:
         await asyncio.to_thread(launch_url, url)
+    except OpenerUnconfirmed as exc:
+        return web.json_response(
+            {"ok": False, "opening_unconfirmed": True, "error": str(exc)}, status=503
+        )
     except OSError as exc:
         return web.json_response(
             {"ok": False, "error": f"failed to open browser: {exc}"}, status=500
@@ -4806,6 +4903,7 @@ PUBLIC_FILES = {"/" + name: name for name in (
     "demo_mode.js", "orrery_view.js", "mail_view.js", "cockpit_tour.js",
     "cockpit_full_tour.js", "telemetry_light.js",
     "conversation_source.js", "conversation_view.js", "conversation_view.css", "conversation_preview.js", "conversation_reply.js",
+    "conversation_motion.js",
     "conversation_steps.js", "conversation_steps.css",
     "conversation_mail.js", "conversation_speaker.js", "conversation_terminal.js", "conversation_markdown.js",
     "reader_approval.js", "reader_approval.css", "reader_activity.js",

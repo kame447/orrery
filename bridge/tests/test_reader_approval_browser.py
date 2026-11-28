@@ -170,8 +170,12 @@ def test_identical_next_prompt_can_be_answered_again(approval_browser):
 
 def test_ack_does_not_enable_repeat_and_timeout_keeps_terminal_link(approval_browser):
     js,wait,client,pane,_=approval_browser
-    pane.change(MCP,stay=True)
+    pane.change(MCP.replace('message_id: 9','message_id: 10'),stay=True)
+    wait("document.querySelector('.reader-approval-full').textContent==='message_id: 10'")
     js("document.querySelector('.reader-approval-toggle').click()")
+    wait("document.querySelector('.reader-approval-choice.is-once:not(:disabled)')!==null")
+    js("document.querySelector('.reader-approval-choice.is-once:not(:disabled)').focus()")
+    assert js('document.activeElement.dataset.choice')=='1'
     enter(client)
     wait("document.querySelector('.reader-approval-main-title').textContent.startsWith('Response sent')")
     first=pane.keys.read_text()
@@ -269,3 +273,65 @@ def test_unsent_preflight_can_be_reviewed_again_in_reader(approval_browser):
     enter(client)
     wait("document.querySelector('.reader-approval-main-title').textContent==='Prompt closed'")
     assert json.loads(pane.result.read_text())==dict(selected=1,key='\r')
+
+
+@pytest.mark.parametrize('text', [MCP, READ])
+def test_confirmed_closed_card_dismisses_and_keeps_reader_focus(approval_browser,text):
+    js,wait,client,pane,_=approval_browser
+    if text == READ:
+        pane.change(text)
+    expected = '4' if text == READ else '1'
+    title = 'Read outside the working directories' if text == READ else 'Allow a Mail tool?'
+    wait("document.querySelector('.reader-approval-title').textContent==="+json.dumps(title))
+    wait("document.querySelector('.reader-approval-main-title').textContent==='Approval needed'")
+    js("document.querySelector('.reader-approval-toggle').click()")
+    wait("document.querySelector('.reader-approval-choice.is-once:not(:disabled)')!==null")
+    js("document.querySelector('.reader-approval-choice.is-once:not(:disabled)').focus()")
+    assert js('document.activeElement.dataset.choice')==expected
+    enter(client)
+    wait("document.querySelector('.reader-approval-main-title').textContent==='Prompt closed'")
+    assert json.loads(pane.result.read_text())['selected']==int(expected)
+    assert js("document.querySelector('.reader-approval-toggle').getAttribute('aria-expanded')")=='false'
+    assert js("document.querySelector('.reader-approval-terminal').hidden")
+    assert js("document.querySelectorAll('.reader-approval-choice').length")==0
+    before=pane.keys.read_text()
+    wait("document.querySelector('.reader-approval').hidden")
+    js("queueStageFit(activeId)")
+    js("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))")
+    assert js("document.activeElement.matches('.conversation-scroll')")
+    client.call('Input.dispatchKeyEvent',type='keyDown',key='q',text='q')
+    client.call('Input.dispatchKeyEvent',type='keyUp',key='q')
+    assert pane.keys.read_text()==before
+    assert js("""(() => {
+      const input=document.getElementById('promptInput'), r=input.getBoundingClientRect();
+      return document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)===input;
+    })()""")
+
+
+def test_new_approval_is_not_dismissed_by_previous_close_timer(approval_browser):
+    js,wait,client,pane,_=approval_browser
+    js("document.querySelector('.reader-approval-toggle').click()")
+    enter(client)
+    wait("document.querySelector('.reader-approval-main-title').textContent==='Prompt closed'")
+    first=pane.keys.read_text()
+    pane.change(MCP)
+    wait("document.querySelector('.reader-approval-main-title').textContent==='Approval needed'")
+    js("new Promise(resolve=>setTimeout(resolve,2000))")
+    assert js("!document.querySelector('.reader-approval').hidden")
+    assert js("document.querySelector('.reader-approval-main-title').textContent")== 'Approval needed'
+    assert pane.keys.read_text()==first
+
+
+def test_closed_card_with_log_warning_remains_available(approval_browser):
+    js,wait,client,pane,_=approval_browser
+    # Model the bridge reporting a failed receipt log without changing the actual send.
+    js("window.warningHandle=handle;handle=msg=>warningHandle(msg.type==='approval'&&msg.state==='sent'?{...msg,logWarning:true}:msg)")
+    js("document.querySelector('.reader-approval-toggle').click()")
+    enter(client)
+    wait("document.querySelector('.reader-approval-main-title').textContent==='Prompt closed'")
+    before=pane.keys.read_text()
+    js("new Promise(resolve=>setTimeout(resolve,2000))")
+    assert js("!document.querySelector('.reader-approval').hidden")
+    assert js("!document.querySelector('.reader-approval-terminal').hidden")
+    assert js("document.querySelector('.reader-approval-status').textContent")=='Response log could not be saved.'
+    assert pane.keys.read_text()==before

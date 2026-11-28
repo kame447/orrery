@@ -2,6 +2,7 @@
 import json
 import os
 import sqlite3
+import subprocess
 import sys
 from pathlib import Path
 
@@ -223,6 +224,84 @@ def test_hermes_hidden_reasoning_and_malformed_tools(tmp_path):
     con.execute("INSERT INTO messages(id,session_id,role,content,tool_calls,display_kind,timestamp) VALUES(1,'fixture-session','assistant','HIDDEN',NULL,'hidden',1),(2,'fixture-session','assistant','visible','not-json',NULL,1)")
     con.commit();con.close()
     assert [e['text'] for e in page(row(path,'hermes'))['events']]==['visible']
+
+def test_claude_file_references_survive_receipt_refresh_but_not_a_relaunch(tmp_path):
+    path = tmp_path / 'history.jsonl'
+    report = tmp_path / 'report.txt'
+    report.write_text('Generated labels')
+    path.write_bytes(line(claude('assistant', [
+        dict(type='tool_use', id='fixture-call', name='Read', input={'file_path': str(report)})
+    ])))
+    original = dict(row(path, 'claude-code'), created=100)
+    refreshed = dict(original, history_receipt_ts='2026-11-04T07:00:10Z')
+    relaunched = dict(refreshed, created=200)
+    store = ReferenceStore(workspace_roots=[str(tmp_path)])
+    with history.open_reader(original) as reader:
+        first = reader.read_page()
+        event = first['events'][0]
+        store.decorate(original, reader, event)
+    ref = event['references'][0]['id']
+    assert store.read(ref, refreshed)['text'] == 'Generated labels'
+    assert not page(refreshed, after=first['after'])['events']
+    with pytest.raises(PreviewUnavailable, match='reference_expired'):
+        store.read(ref, relaunched)
+    with pytest.raises(history.HistoryUnavailable, match='history_changed'):
+        page(relaunched, after=first['after'])
+
+
+@pytest.mark.parametrize('changes', [
+    {'created': None}, {'created': 0}, {'created': True}, {'created': '100'},
+    {'mail_instance_id': 'fixture-instance'}, {'mail_agent_id': 'fixture-agent'},
+    {'history_binding': 'stale'}, {'program': 'dsh'},
+])
+def test_receipt_refresh_requires_verified_legacy_claude_launch(tmp_path, changes):
+    original = dict(row(tmp_path / 'history.jsonl', 'claude-code'), created=100)
+    original.update(changes)
+    refreshed = dict(original, history_receipt_ts='2026-11-04T07:00:10Z')
+    assert binding(original) != binding(refreshed)
+
+
+@pytest.mark.parametrize('changes', [
+    {'history_receipt_ts': None}, {'history_receipt_ts': ''},
+    {'history_session_id': 'other'}, {'native_session_id': 'other'},
+    {'transcript_path': '/fixture/other.jsonl'}, {'created': 200},
+    {'history_binding': 'stale'}, {'mail_instance_id': 'other'},
+    {'mail_agent_id': 'other'}, {'name': 'OtherFixture'},
+])
+def test_verified_claude_launch_does_not_alias_missing_receipt_or_other_identity(tmp_path, changes):
+    original = dict(row(tmp_path / 'history.jsonl', 'claude-code'), created=100)
+    changed = dict(original, **changes)
+    assert binding(original) != binding(changed)
+
+
+def test_claude_receipt_binding_frontend_matches_backend(tmp_path):
+    original = dict(row(tmp_path / 'history.jsonl', 'claude-code'), created=100)
+    refreshed = dict(original, history_receipt_ts='2026-11-04T07:00:10Z')
+    pairs = [[original, refreshed]]
+    for change in [
+        {'created': None}, {'created': 0}, {'created': True}, {'created': '100'},
+        {'history_binding': 'stale'}, {'program': 'dsh'},
+        {'mail_instance_id': 'fixture-instance'}, {'mail_agent_id': 'fixture-agent'},
+    ]:
+        pairs.append([dict(original, **change), dict(refreshed, **change)])
+    for change in [
+        {'history_receipt_ts': None}, {'history_receipt_ts': ''},
+        {'history_session_id': 'other'}, {'native_session_id': 'other'},
+        {'transcript_path': '/fixture/other.jsonl'}, {'created': 200},
+        {'history_binding': 'stale'}, {'name': 'OtherFixture'},
+        {'mail_instance_id': 'other'}, {'mail_agent_id': 'other'},
+    ]:
+        pairs.append([original, dict(original, **change)])
+    expected = [binding(a) == binding(b) for a, b in pairs]
+    assert expected == [True] + [False] * (len(pairs) - 1)
+    script = """const fs=require('fs'),s=require(process.argv[1]);
+const pairs=JSON.parse(fs.readFileSync(0,'utf8'));
+console.log(JSON.stringify(pairs.map(([a,b])=>s.bindingIdentity(a)===s.bindingIdentity(b))));"""
+    result = subprocess.run(
+        ['node', '-e', script, str(Path(__file__).resolve().parents[1] / 'conversation_source.js')],
+        input=json.dumps(pairs), text=True, capture_output=True, timeout=15, check=True)
+    assert json.loads(result.stdout) == expected
+
 
 def test_old_dashboard_keeps_codex_only(tmp_path):
     for program in ['claude-code','dsh','hermes']:

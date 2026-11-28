@@ -16,7 +16,8 @@ curl -fsSL https://raw.githubusercontent.com/gyroid-eth/orrery/master/scripts/ge
 - **Look without changing anything**: `curl -fsSL …/get.sh | bash -s -- --check` (prerequisites and the plan), `… | bash -s -- --dry-run` (plus the installer's preview of the 4 changes). Neither writes to your home folder (what they download goes to a temporary folder that is removed)
 - **CI and scripts that use the exit code**: `curl | bash` can return 0 when the download fails, so save first: `curl -fsSL …/get.sh -o get.sh && bash get.sh --yes`
 - Prerequisites (git, tmux, curl, uv, Python 3.11+) are checked at once. Missing git / tmux / curl stop it with nothing changed and the line that installs them. uv and Python need no sudo, so they go into the plan (your shell profile is not changed)
-- Before changing anything it shows one plan; **type `yes` and Enter** once. Four things change: `~/.claude.json` (MCP), `~/.claude/settings.json` (hooks and permissions), `~/.codex/AGENTS.md` (a global block for all your Codex work), and the project's `CLAUDE.md` (a block). Each is backed up first (the folders and background services it adds besides these 4 are listed in [What is installed, and what changes](#what-is-installed-and-what-changes)). `--ask-each` also shows each change and asks; `--yes` does not ask (you have read the plan) (`… | bash -s -- --ask-each`)
+- Before changing anything it shows one plan; **type `yes` and Enter** once. The plan lists up to four settings changes (default paths): `~/.claude.json` (MCP), `~/.claude/settings.json` (hooks and permissions), `~/.codex/AGENTS.md` (a global block for all your Codex work), and `$CLAUDE_CONFIG_DIR/CLAUDE.md` (default `~/.claude/CLAUDE.md`, a user-wide block). Existing files are backed up first (the folders and background services it adds besides these 4 are listed in [What is installed, and what changes](#what-is-installed-and-what-changes)). `--ask-each` also shows each change and asks; `--yes` does not ask (you have read the plan) (`… | bash -s -- --ask-each`)
+- `--no-start` skips cockpit startup or restart only; it does not skip installation, updates or Mail processing. `ORRERY_NO_OPEN=1` skips opening the browser only. Ensure active agents have safely finished before an update.
 - The folder agents work in is `~/orrery-work` unless you say otherwise (no question; the plan shows it). Another folder: `… | bash -s -- --project-key ~/my-project`
 - The cockpit runs in a tmux server of its own (`tmux -L orrery-cockpit`), apart from the agents' tmux, so it never shows up as an agent. Its output: `tmux -L orrery-cockpit attach` (Ctrl-b, d to leave). Stop it: `tmux -L orrery-cockpit kill-server`. Start it again: the same line. On an update, a cockpit this setup started is restarted on the new version (any other cockpit is left running, with a note)
 - The 2 test agents the selftest makes are not shown in the cockpit's roster and network (the dashboard still lists them)
@@ -109,12 +110,12 @@ So you can check before installing it on your own computer, here is what is inst
 | `~/.claude/skills`, `~/.codex/skills` | links to ORRERY's skills (`delegate`, `log`) |
 | `~/.codex/AGENTS.md` | ORRERY's instructions (only the block between markers) |
 | `~/.codex/config.toml` | the Codex plugin and its hook approvals (only if you do [Install the Codex plugin](#install-the-codex-plugin-if-you-use-codex)) |
-| `CLAUDE.md` in the work folder | ORRERY's instructions (a block; the existing content stays as it is) |
+| `$CLAUDE_CONFIG_DIR/CLAUDE.md` (default `~/.claude/CLAUDE.md`) | ORRERY's user-wide instructions (marked block) |
 | Mac: `~/Library/LaunchAgents` / Ubuntu: `~/.config/systemd/user` | entries that run Mail and Telemetry in the background (the cockpit is not registered here; it runs in its own tmux server, `tmux -L orrery-cockpit`) |
 
-**Not changed**: `~/.zshrc` and `~/.bashrc` (ORRERY does not edit them; PATH lines for Claude Code or Codex are ones you add yourself), anything outside your home folder (except the work folder's `CLAUDE.md` and the backup placed next to it, including a Windows-side vault made the work folder by the research set), and Windows settings. Codex or Claude Code installed on Windows is not affected either: with this procedure's default locations (unless you point `CODEX_HOME`, `AGENTSTACK_CLAUDE_SETTINGS` or `AGENTSTACK_CLAUDE_JSON` at the Windows side, and do not share `~/.codex` or `~/.claude` with Windows through a link or similar), ORRERY writes settings only inside the Ubuntu home (`~/.codex`, `~/.claude`) and does not touch the Windows-side `C:\Users\…\.codex` or `.claude` (the research set's vault is on the Windows side, so if you open that vault with Windows' Claude Code, it also reads the ORRERY block in its `CLAUDE.md`). The screens and Mail listen only on `127.0.0.1` (inside this computer) and cannot be reached from outside.
+**Settings locations**: ORRERY leaves `~/.zshrc` and `~/.bashrc` alone. By default, Claude and Codex settings and instructions live in the home of the OS where setup runs (the Ubuntu home for WSL2). If you override `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `AGENTSTACK_CLAUDE_SETTINGS` or `AGENTSTACK_CLAUDE_JSON`, or use symlinks, review the actual paths before approval. Moving or removing an old project instruction block follows [instruction migration and consent](https://github.com/kame447/orrery-telemetry/blob/master/docs/instruction-migration.en.md#consent). Cockpit and Mail bind to loopback by default; review exposure separately if using other bind settings or a tunnel.
 
-**Uninstall**: if you installed the Codex plugin, **first** remove it with `~/orrery-telemetry/scripts/uninstall-codex-app-integration.sh` (its record is inside `~/.agentstack`, so it cannot be removed once that is gone). Then follow [Uninstall](../../README.en.md#uninstall) in the README (`~/.agentstack/bin/agentstack-uninstall --purge-data` removes `~/.agentstack`, the background entries and the skill links, and takes back what was added to `~/.claude/settings.json` and `~/.claude.json`; then stop the cockpit and run `rm -rf ~/orrery ~/orrery-telemetry`). The ORRERY blocks in `~/.codex/AGENTS.md` and in the work folder's `CLAUDE.md` stay; delete what is between the markers by hand if you do not want them. All of the source is public on GitHub ([orrery](https://github.com/gyroid-eth/orrery), [orrery-telemetry](https://github.com/gyroid-eth/orrery-telemetry)).
+**Uninstall**: if you installed the Codex plugin, **first** remove it with `~/orrery-telemetry/scripts/uninstall-codex-app-integration.sh` (its record is inside `~/.agentstack`, so it cannot be removed once that is gone). Then follow [Uninstall](../../README.en.md#uninstall) in the README (`~/.agentstack/bin/agentstack-uninstall --purge-data` removes `~/.agentstack`, the background entries and the skill links, and takes back what was added to `~/.claude/settings.json` and `~/.claude.json`; then stop the cockpit and run `rm -rf ~/orrery ~/orrery-telemetry`). Follow [instruction migration and uninstall](https://github.com/kame447/orrery-telemetry/blob/master/docs/instruction-migration.en.md#uninstall) for removing instruction blocks. Edited or unknown blocks and unresolved migrations may be retained, and purge may be refused. All of the source is public on GitHub ([orrery](https://github.com/gyroid-eth/orrery), [orrery-telemetry](https://github.com/gyroid-eth/orrery-telemetry)).
 
 ### 0. Obsidian (when you use it)
 
@@ -414,7 +415,7 @@ Inside the repository:
 
 In one run, the script does the following.
 
-1. Checks the standalone cockpit prerequisites (Python 3.10 or newer, tmux, the orrery-telemetry settings, the project key, and a dashboard response; the shared installation and Telemetry separately need Python 3.11 or newer; an older orrery-telemetry only gets a warning)
+1. Checks the standalone cockpit prerequisites (Python 3.11 or newer, tmux, the orrery-telemetry settings, the project key, and a dashboard response). An older orrery-telemetry only gets a warning
 2. Creates a Python environment in `bridge/.venv` and installs the packages in `bridge/requirements.txt` (the first run takes a while; from the second run on it skips this if nothing changed)
 3. Takes over the orrery-telemetry settings (the project key, Mail DB, and dashboard port in `~/.agentstack/env.sh`). It does not rewrite settings files under `~/.agentstack` or `~/.orrery`
 4. Starts the backend **inside this window**, confirms it responds, and then prints the URL to open
@@ -455,7 +456,7 @@ Run this in the cockpit folder. It brings orrery-telemetry and the cockpit up to
 ./scripts/update.sh
 ```
 
-When it is done, press `Ctrl-C` in the window running the cockpit, and run `./scripts/start-cockpit.sh` again.
+After updating, the script reports if the backend for this checkout is still running an older revision. Wait until all agent work and pending Mail deliveries are safely finished before quitting and reopening the same app, or normally stopping its own terminal launcher and running `./scripts/start-cockpit.sh` again. If a backend remains running, verify its ownership before stopping it. If the revision cannot be verified, check the configured port and checkout. Do not restart a backend belonging to another checkout.
 
 ##### Details
 
@@ -478,7 +479,7 @@ The script checks the prerequisites all at once, shows what is missing on lines 
 
 | Message (excerpt) | Meaning and fix |
 | --- | --- |
-| `Python 3.10 or newer is required.` | Python is too old or missing. On a Mac, `brew install python@3.13`; on Ubuntu, `sudo apt install python3`. To use a specific Python, run `ORRERY_PYTHON=/path/to/python3 ./scripts/start-cockpit.sh` |
+| `Python 3.11 or newer is required.` | Python is too old or missing. On a Mac, use `brew install python@3.13`. On Ubuntu 24.04, `sudo apt install python3` installs 3.12. To select a specific Python 3.11 or later, run `ORRERY_PYTHON=/path/to/python3 ./scripts/start-cockpit.sh` |
 | `tmux is not installed.` | On a Mac, `brew install tmux`; on Ubuntu, `sudo apt install tmux` |
 | `orrery-telemetry is not installed` | `~/.agentstack/env.sh` does not exist. Install orrery-telemetry first (step 0) |
 | `No project key is configured.` | Reinstall orrery-telemetry with its installer, adding `--project-key /absolute/path/to/your-project` |
@@ -522,12 +523,12 @@ See [Telemetry's compatibility table](https://github.com/gyroid-eth/orrery-telem
 
 Required:
 
-The requirements below apply to the cockpit alone. The shared installation above and Telemetry require Python 3.11 or later. If no suitable Python is available, the shared installer uses uv to install 3.12. Meeting the standalone 3.10 minimum does not meet all requirements for the shared installation.
+The requirements below apply to the cockpit alone. The shared installation and Telemetry also require Python 3.11 or later. If no suitable Python is available, the shared installer uses uv to install 3.12.
 
-- Python 3.10 or newer
+- Python 3.11 or newer
 - `tmux`
 - `pip` and `venv`
-- A network that can reach the runtime CDN
+- Network access to the distribution sources for installation and updates. The terminal bundles `xterm.js` and its addons
 
 For developing and building the desktop app:
 
@@ -552,7 +553,7 @@ git clone https://github.com/gyroid-eth/orrery.git
 cd orrery
 ```
 
-Create a virtual environment for the backend only.
+Create a dedicated virtual environment for the backend using Python 3.11 or later. Check `python3 --version` and substitute the appropriate executable if needed. If `bridge/.venv` uses an older Python, stop the backend, rename the environment, and recreate it.
 
 ```bash
 python3 -m venv bridge/.venv

@@ -15,7 +15,7 @@ from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from conversation_mail import received, sent
 from conversation_artifacts import SHOW_FILES, completed_show_files
-from conversation_steps import codex_completed, codex_turn, mark_step_boundary
+from conversation_steps import codex_completed, codex_turn, mark_step_boundary, opaque
 
 MAX_SCAN = 4 * 1024 * 1024
 MAX_TEXT = 64 * 1024
@@ -212,6 +212,12 @@ def _codex_event(item, offset):
             if SHOW_FILES.fullmatch(name.split('.')[-1]):return None
             event = sent(dict(base, kind="tool", role="assistant", text=name[:160]),name,
                          payload.get('input',payload.get('arguments')))
+            # Expose only the opaque identity of a native clock request.
+            # It is not proof of completion and remains visible until matched.
+            if kind == 'function_call' and payload.get('namespace') == 'clock' and name == 'sleep':
+                call_id = opaque(payload.get('call_id'))
+                if call_id:
+                    event['sleep_call_id'] = call_id
             if name in {'exec', 'functions.exec'}:
                 event['step_wrapper'] = True
             return event
@@ -355,6 +361,25 @@ def bound_agent(payload: object, name: str, *, api_generation: int = 34) -> dict
 def bound_codex_agent(payload: object, name: str) -> dict:
     """Compatibility selector for callers using the pre-35 contract."""
     return bound_agent(payload,name)
+
+
+def conversation_binding(row):
+    """Identity of a verified record across authority checks and previews."""
+    keys = ('name', 'program', 'history_binding', 'transcript_path', 'native_session_id',
+            'history_session_id', 'created', 'mail_instance_id', 'mail_agent_id')
+    # Telemetry checks the self receipt's freshness before returning a bound
+    # Claude row. A newer receipt can still prove the same native session.
+    native_claude = (row.get('program') in ('claude', 'claude-code')
+                     and row.get('history_binding') == 'bound'
+                     and row.get('history_session_id') and row.get('transcript_path')
+                     and not row.get('mail_instance_id') and not row.get('mail_agent_id')
+                     and type(row.get('created')) in (int, float)
+                     and 0 < row['created'] < 2**53
+                     and isinstance(row.get('history_receipt_ts'), str)
+                     and bool(row['history_receipt_ts']))
+    # Distinguish a verified refresh from a missing or invalid receipt.
+    receipt = ('verified-launch',) if native_claude else ('receipt', row.get('history_receipt_ts'))
+    return (*[row.get(key) for key in keys], receipt)
 
 
 def open_reader(row, expect_inode=None):

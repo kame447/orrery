@@ -70,7 +70,7 @@ or failure summaries. Messages are shortened beyond 64 Ki characters.
   current context: replacement/compaction/injection events are excluded.
   Independent frames have frame/line/block cursors. Each request bounds compressed
   input and decoded output to 4 MiB and 512 frames; an unfinished final frame
-  stays pending. Invalid complete frames fail explicitly. `zstandard==0.23.0`
+  stays pending. Invalid complete frames fail explicitly. `zstandard==0.25.0`
   is pinned in requirements; if missing, dsh reports unsupported without a
   guessed decoder or provider executable. Recorded fs-result hunks are supported.
 - **Hermes:** exact `history_session_id` on every message query, `mode=ro`,
@@ -302,6 +302,8 @@ It prevents new leaks from this lifetime failure; it does not remove existing
 unattributed control clients left by earlier versions.
 
 ## Setup
+
+Check that `python3 --version` reports Python 3.11 or later, or use the path to a compatible interpreter below.
 
 ```sh
 cd bridge

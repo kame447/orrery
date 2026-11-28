@@ -133,6 +133,8 @@ def codex_completed(raw):
         name, detail = 'view_image', filenames([item.get('path')])
     elif kind in {'WebSearch', 'Extension'} and (kind == 'WebSearch' or item.get('kind') == 'web.search'):
         name = 'web_search'
+    elif kind == 'Extension' and item.get('kind') == 'clock.sleep':
+        name = 'sleep'
     if not name:
         return None
     result = item.get('result')
@@ -142,6 +144,8 @@ def codex_completed(raw):
     status = ('failed' if failed else 'observed' if kind in {'ImageView', 'WebSearch', 'Extension'} else
               'done' if item.get('status') == 'completed' else 'observed')
     step = dict(id=key, phase='complete', tool=name, detail=detail, status=status)
+    if kind == 'Extension' and item.get('kind') == 'clock.sleep':
+        step['clock_sleep'] = True
     for source, target in [('started_at_ms', 'started'), ('completed_at_ms', 'ended')]:
         value = millis(p.get(source))
         if value is not None:

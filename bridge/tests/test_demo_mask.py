@@ -56,6 +56,21 @@ def test_positive_names_are_masked_in_place(text, shown):
     assert len(shown) == len(text)
 
 
+@pytest.mark.parametrize("text, shown", [
+    ("/mnt/c/Users/Profile/work", "/mnt/c/Users/*******/work"),
+    (r"C:\Users\Profile\work", r"C:\Users\*******\work"),
+    ("D:/Users/Other Profile/work", "D:/Users/*************/work"),
+    ("/mnt/d/Users/Other Profile/work", "/mnt/d/Users/*************/work"),
+    ("cd /mnt/c/Users/Profile", "cd /mnt/c/Users/*******"),
+    ("C:/Users/ミラさん/work", "C:/Users/＊＊＊＊/work"),
+    ("C:/Users/Pro\x1b[31mfile\x1b[0m/work", "C:/Users/***\x1b[31m****\x1b[0m/work"),
+    ("/mnt/c/Users/Profile\x1b[2;1Hnext row", "/mnt/c/Users/*******\x1b[2;1Hnext row"),
+])
+def test_windows_profile_path_mask_without_matching_login(text, shown):
+    assert mask(text) == [shown]
+    assert len(text) == len(shown)
+
+
 def test_positive_the_mask_keeps_the_display_width():
     widths = run("""
       const w=s=>[...s].reduce((n,c)=>n+(/[\\u3000-\\u9fff\\uff00-\\uff60]/.test(c)?2:1),0);
@@ -91,6 +106,21 @@ def test_positive_a_screen_repainted_row_by_row_keeps_its_rows_apart():
 ])
 def test_negative_other_text_is_left_alone(text):
     assert mask(text) == [text]
+
+
+def test_windows_profile_mask_keeps_longer_known_name_without_delimiter():
+    result = run("""
+      const known=M.create({users:['Other Profile'],hosts:['fixture-host']});
+      console.log(JSON.stringify(known.mask(D.t)));
+    """, t="C:/Users/Other Profile")
+    assert result == "C:/Users/*************"
+
+
+def test_windows_profile_mask_preserves_unrelated_text_and_posix_paths():
+    assert mask("C:/Users/Profile then /tmp/file", "C:/Projects/Users/Profile/work",
+                "/Users/Profile/work", "/mnt/c/Users/") == [
+        "C:/Users/******* then /tmp/file", "C:/Projects/Users/Profile/work",
+        "/Users/Profile/work", "/mnt/c/Users/"]
 
 
 def test_negative_without_names_nothing_changes():

@@ -87,13 +87,16 @@ demo modeでは、Phoneの節はTailscaleのlogin・スマホで開くaddress・
 
 | 環境変数 | 既定値 | 用途 |
 | --- | --- | --- |
-| `ORRERY_MAIL_DB` | `config.mail_db`、その後 `~/.agentstack/mail/storage.sqlite3` | ORRERY が read-only で開く ORRERY Mail SQLite。`AGENTSTACK_MAIL_DB` への fallback はありません |
+| `ORRERY_MAIL_DB` | `config.mail_db`、その後 `~/.agentstack/mail/storage.sqlite3` | legacy backend が read-only で開く ORRERY Mail SQLite。起動 script の引き継ぎは[下の優先順位](#orrery-mail-db)を参照 |
 | `ORRERY_PROJECT_KEY` | `AGENTSTACK_PROJECT_KEY`、その後 `config.project_key`、最後は未設定 | mail query の `projects.human_key`。利用者の環境では absolute path を指定してください |
 | `AGENTSTACK_PROJECT_KEY` | `config.project_key`、その後未設定 | ORRERY project key の共通 fallback。ORRERY Telemetry と同じ値を推奨 |
 | `ORRERY_PORTRAIT_DIR` | `<repo>/assets/portraits_64` | 通常 portrait |
 | `ORRERY_PORTRAIT_DIR_HI` | `<repo>/assets/portraits` | `hi=1` portrait |
 | `ORRERY_PORTRAIT_DIR_PX` | `<repo>/assets/portraits_px` | `style=pixel` portrait |
 | `AGENTSTACK_ANNOTATIONS` | `config.annotations_path`、その後 ORRERY Telemetry runtime / legacy path | dashboard annotation API が不達のときだけ読む file fallback |
+| `ORRERY_PREFS_PATH` | `~/.orrery/prefs.json` | cockpit の共有設定の読み書き先 |
+| `ORRERY_NO_OPEN` | `0` | 共通 setup で `1` にすると、起動・再起動後のブラウザー自動表示を省きます |
+| `ORRERY_COCKPIT_TMUX_SOCKET` | `orrery-cockpit` | 共通 setup が cockpit backend を動かす専用 tmux socket 名 |
 | `ORRERY_HISTORY_DIR` | `~/.orrery/history` | terminal recorder の JSON 保存先 |
 | `AGENTSTACK_ORRERY_ROOT` | `config.orrery_root`、その後未設定 | Tauri sidecar が checkout を探す root |
 | `ORRERY_BACKEND_PYTHON` | `<root>/bridge/.venv/bin/python` | sidecar の Python |
@@ -153,7 +156,7 @@ ORRERY_E2E_V2=1 .venv/bin/python tests/e2e_bridge.py -v
 
 ### ORRERY Mail DB
 
-ORRERY は `ORRERY_MAIL_DB`、`config.json` の `mail_db`、既定 path の順に読みます。ORRERY Telemetry の `AGENTSTACK_MAIL_DB` は自動継承されないため、default 以外では両側に同じ path を設定します。
+legacy で `scripts/start-cockpit.sh` を使う場合、`ORRERY_MAIL_DB`、shell の `AGENTSTACK_MAIL_DB`、インストール済み Telemetry の `env.sh` の `AGENTSTACK_MAIL_DB` の順で選び、値があれば backend へ `ORRERY_MAIL_DB` として渡します。legacy backend を直接起動する場合は `ORRERY_MAIL_DB`、`config.json` の `mail_db`、既定 path の順です。fresh では保護された dashboard API から Mail を読み、legacy DB へ fallback しません。
 
 SQLite は次の形式で read-only open されます。
 
@@ -176,13 +179,7 @@ DB 不在や schema error は backend 全体を停止せず、mail route が `ok
 
 ### ORRERY Telemetry dashboard
 
-ORRERY の接続先は次に固定されています。
-
-```text
-http://127.0.0.1:8770
-```
-
-ORRERY Telemetry 側で port を変えないでください。必要 API は `/api/agents`、`/api/messages-since`、`/api/graph`、`/api/spawn`、`/api/spawn-names`、`/api/annotations`、`/api/exit` です。
+legacy の既定接続先は `http://127.0.0.1:8770` です。`ORRERY_DASHBOARD_URL` で上書きできます。`scripts/start-cockpit.sh` は指定がなければインストール済み Telemetry の `env.sh` の `AGENTSTACK_PORT` を使います。legacy backend を直接起動する場合は、custom port に合わせて `ORRERY_DASHBOARD_URL` を指定してください。fresh の接続条件は冒頭の fresh の説明を参照してください。必要 API は `/api/agents`、`/api/messages-since`、`/api/graph`、`/api/spawn`、`/api/spawn-names`、`/api/annotations`、`/api/exit` です。
 
 ### tmux
 
@@ -217,7 +214,7 @@ prompt composer は browser `localStorage` に draft と最大50件の送信履�
 - mail rail と terminal を表示したまま画面共有しない
 - 画面共有や録画では、デモモードを使う
 
-デモモード（Settings の Demo mode、または URL の `?demo=1`。`?demo=0` はそのページだけ切る）は、画面に出るユーザー名と機体名を同じ文字数の `*` で伏せます。伏せるのは、home の path の中のユーザー名（`/Users/<名前>`、`/home/<名前>`、`C:\Users\<名前>`）、`<名前>@` の形、単語として出る機体名です。名前は backend の `GET /telemetry/identity` が `$HOME`・login 名・機体名（WSL では Windows のユーザー名も）から返し、推測はしません。ほかの単語の一部としての名前や、本文に書かれた人の名前は伏せません。伏せるのは表示だけで、agent・記録・Mail の中身は変わらず、ターミナルの path と URL のクリックとコピーは本当の値で動きます。入力欄は本当の値を持ったまま、伏せた文字を重ねて表示します（送る内容・編集・コピーは本当の値）。名前が分かるまでは画面を出さず、backend が名前を返せないときは、画面を隠したまま理由と Retry を表示します（実名の画面に切り替えるには「Open without demo mode」を選ぶ）。Settings の switch は browser の `localStorage` に保存されます。
+デモモード（Settings の Demo mode、または URL の `?demo=1`。`?demo=0` はそのページだけ切る）は、画面に出るユーザー名と機体名を同じ文字数の `*` で伏せます。伏せるのは、home の path の中のユーザー名（`/Users/<名前>`、`/home/<名前>`、`C:\Users\<名前>`）、`<名前>@` の形、単語として出る機体名です。名前は backend の `GET /telemetry/identity` が `$HOME`・login 名・機体名（WSL では Windows のユーザー名も）から返します。Windows のドライブパスと WSL の `/mnt/<drive>/Users/` では、ログイン名と異なるプロファイル名も、パスの区切りから識別できる範囲で伏せます。後続の区切りがない空白入りの名前は、一部しか伏せられない場合があります。ほかの単語の一部としての名前や、本文に書かれた人の名前は伏せません。伏せるのは表示だけで、agent・記録・Mail の中身は変わらず、ターミナルの path と URL のクリックとコピーは本当の値で動きます。入力欄は本当の値を持ったまま、伏せた文字を重ねて表示します（送る内容・編集・コピーは本当の値）。名前が分かるまでは画面を出さず、backend が名前を返せないときは、画面を隠したまま理由と Retry を表示します（実名の画面に切り替えるには「Open without demo mode」を選ぶ）。Settings の switch は browser の `localStorage` に保存されます。
 
 ほかに伏せたい語（Mail の本文に書かれた人の名前、案件の名前など）は、Settings の「Also mask these words」に `,` 区切りで足します（browser の `localStorage` に保存）。足した語もユーザー名と同じように、同じ幅の `*` で、ターミナルの中身まで伏せ、クリックとコピーは本当の値に戻ります。英数字の語は、大文字小文字を区別せず、単語として出たときだけ伏せます（`Kobo` は `kobold` の中では伏せない）。日本語など、それ以外の文字を含む語は、単語の区切りが無いので、どこに出ても伏せます（`ミラノ` を足すと `ミラノさん` の `ミラノ` も伏せる）。1 文字の語は無視します。1 ページだけなら URL の `?mask=語,語` でも渡せますが、URL は履歴や共有に残るので、Settings の欄を使ってください。
 

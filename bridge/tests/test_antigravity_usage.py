@@ -93,6 +93,37 @@ def test_antigravity_dials_match_other_providers_and_settings(tour_browser):
     assert evaluate("document.querySelector('#usageBtn [data-provider=\"antigravity\"]')===null")
 
 
+
+def test_stale_usage_heading_preserves_fork_quota_groups(tour_browser):
+    import usage_probe as up
+    _, evaluate = tour_browser
+    entries = [{**QUOTAS[0], "status": "stale"}, QUOTAS[1],
+               {**ANTIGRAVITY, "status": "stale"}]
+    payload = {"providers": [up.provider_from_quota_payload(e).to_json()
+                             for e in entries]}
+    usage_dom(evaluate, payload)
+    result = evaluate("""(()=>({
+      stale:[...document.querySelectorAll('#usageDials .up-name.stale')].map(e=>({
+        name:e.textContent,title:e.title,accessible:e.closest('section').getAttribute('aria-label')
+      })),
+      groups:[...document.querySelectorAll('#usageDials .up-quota-group-name')].map(e=>e.textContent),
+      labels:[...document.querySelectorAll('#usageDials .up-quota-group .dial .lab')].map(e=>e.textContent),
+      argon:document.querySelector('#usageDials').textContent.includes('Argon')
+    }))()""")
+    assert result["stale"] == [
+        {"name":"Claude","title":"Claude · stale · observed 12:00","accessible":"Claude, stale"},
+        {"name":"Antigravity (Gemini)","title":"Antigravity (Gemini) · stale · observed 12:00",
+         "accessible":"Antigravity (Gemini), stale"},
+    ]
+    assert result["groups"] == ["Gemini", "Claude / GPT"]
+    assert result["labels"] == ["5H", "7D", "5H", "7D"]
+    assert not result["argon"]
+    payload["providers"] = [up.provider_from_quota_payload(e).to_json()
+                            for e in QUOTAS + [ANTIGRAVITY]]
+    usage_dom(evaluate, payload)
+    assert evaluate("document.querySelectorAll('#usageDials .up-name.stale').length") == 0
+
+
 def test_antigravity_dashboard_failure_keeps_last_windows_as_stale():
     dashboard = Dashboard({"providers": QUOTAS + [ANTIGRAVITY]})
     request = request_for(dashboard)
