@@ -370,3 +370,73 @@ def test_denied_signals_cannot_make_guard_wait_block_history_flush(monkeypatch, 
     asyncio.run(scenario())
     assert waits and all(timeout is not None and timeout > 0 for timeout in waits)
     assert '424242' in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("bounded", [False, True])
+def test_command_capture_preserves_osc8_and_next_ack(tmp_path, bounded):
+    from mobile_input import terminal_text
+
+    async def scenario():
+        bridge = TmuxControlBridge(ControlConfig("127.0.0.1", 0, "fixture", "tmux",
+                                                history_dir=tmp_path))
+        future = asyncio.get_running_loop().create_future()
+        bridge._pending_blocks.append(future)
+        if bounded:
+            bridge._bounded_blocks[future] = 65536
+        line = "\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\ trailing"
+        bridge._handle_line(b"\x1bP1000p%begin 1 2 0")
+        bridge._handle_line(line.encode())
+        bridge._handle_line(b"%end 1 2 0")
+        result = await future
+        assert result.ok and result.lines == [line]
+        assert terminal_text(result.lines) == ("link trailing", False, True)
+        assert not bridge._pending_blocks and not bridge._bounded_blocks
+        next_future = asyncio.get_running_loop().create_future()
+        bridge._pending_blocks.append(next_future)
+        bridge._handle_line(b"%begin 1 3 0")
+        bridge._handle_line(b"next")
+        bridge._handle_line(b"%end 1 3 0")
+        assert (await next_future).lines == ["next"]
+
+    asyncio.run(scenario())
+
+
+def test_wrapped_control_output_keeps_escaped_osc_payload(tmp_path):
+    bridge = TmuxControlBridge(ControlConfig("127.0.0.1", 0, "fixture", "tmux",
+                                            history_dir=tmp_path))
+    events = []
+    bridge._schedule_broadcast = events.append
+    bridge._handle_line(b"\x1bP1000p%output %7 \\033]8;;https://example.com\\033\\134link\\033]8;;\\033\\134\x1b\\")
+    assert "".join(event["data"] for event in events) == "\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\"
+
+
+def test_osc8_capture_from_real_isolated_tmux(isolated_tmux):
+    from mobile_input import terminal_text
+
+    command, wrapper, tmp_path = isolated_tmux
+    link = "\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\ trailing"
+    script = "import sys,time;sys.stdout.write(" + repr(link) + ");sys.stdout.flush();time.sleep(15)"
+    pane = subprocess.check_output(command + [
+        "new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "probe",
+        shlex.join([sys.executable, "-c", script]),
+    ], text=True).strip()
+
+    def direct():
+        return subprocess.check_output(command + ["capture-pane", "-e", "-p", "-t", pane], text=True)
+
+    assert eventually(lambda: "link trailing" in terminal_text(direct().splitlines())[0])
+    expected = direct().splitlines()
+    assert any("\x1b]8;" in row and "\x1b\\" in row for row in expected)
+
+    async def scenario():
+        bridge = TmuxControlBridge(ControlConfig("127.0.0.1", 0, "probe", str(wrapper),
+                                                history_dir=tmp_path / "history"))
+        try:
+            await bridge.start()
+            result = await bridge.send_command(["capture-pane", "-e", "-p", "-t", pane])
+            assert result is not None and result.ok and result.lines == expected
+            assert "link trailing" in terminal_text(result.lines)[0]
+        finally:
+            await bridge.stop()
+
+    asyncio.run(scenario())
