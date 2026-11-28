@@ -1507,6 +1507,12 @@ class SessionBridgeManager:
         except TargetRefused as exc:
             await send_error(peer, session, str(exc))
             return
+        # Recorder reconciliation can retire sessions before the peer sees
+        # the roster change. Count only its current live bridges.
+        attached.intersection_update(
+            name for name, state in self.states.items()
+            if not state.bridge._closed and peer in state.bridge.clients
+        )
         if session in attached:
             state = self.states.get(session)
             if state is not None and peer in state.bridge.clients:
