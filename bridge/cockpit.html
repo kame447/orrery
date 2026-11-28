@@ -4053,9 +4053,9 @@
       }
     }
   },
-  "inventory_digest": "56be2f4bafebf3660be548f20c4b98bb8e32b19498362d211eb443d85af1f728",
+  "inventory_digest": "f6b569bb1094581e26b44277ee7d89b51cd076f8e83f4e45858cdfdf48e601e2",
   "rules_digest": "6c99e073c50d75792d183cd0daa1a345398f7e51e2032df7f377746fb98b7125",
-  "source_digest": "cf1d0d804ef4211707a7ede93c2c85d25cadf1872011c621a0c8a4fc183f2bf3",
+  "source_digest": "d663ca74b3e47d0503765f19c55b835ceb9b5bed630347849f6591a17d2f2aa2",
   "surface": "cockpit",
   "version": 1
 }
@@ -9093,6 +9093,30 @@ async function agentActionRoster(path,signal){
   const roster=response?.ok?await response.json().catch(()=>null):null;
   return Array.isArray(roster?.agents)?roster.agents:null;
 }
+// Only retry the read-only restart check. Exit and resume are never retried.
+async function permissionRestartAgent(name){
+  for(let attempt=0;attempt<2;attempt++){
+    const signal=AbortSignal.timeout(8000);
+    const response=await fetch(LIVE_AGENT_ROSTER,{cache:'no-store',signal}).catch(()=>null);
+    const roster=response?.ok?await response.json().catch(()=>null):null;
+    let reason;
+    if(Array.isArray(roster?.agents)){
+      const agent=roster.agents.find(row=>row?.name===name);
+      if(agent)return agent;
+      reason='No live roster row for the selected agent';
+    }else if(!response||signal.aborted){
+      reason=signal.aborted?'Live roster request timed out':'Live roster request failed';
+    }else if(!response.ok){
+      reason='Live roster HTTP '+response.status;
+      // An explicit client error is not evidence that retrying is safe.
+      if(response.status>=400&&response.status<500)throw new Error(reason);
+    }else{
+      reason='Live roster returned an invalid list';
+    }
+    if(attempt===1)throw new Error(reason);
+    await new Promise(resolve=>setTimeout(resolve,300));
+  }
+}
 async function runBulkExit(){
   if(bulkActionBusy||permissionChangeBusy)return;
   const names=[...bulkSelectedAgents].filter(name=>{
@@ -9534,9 +9558,7 @@ async function changeAgentPermission(original,key,value){
     const api=await loadPermissionApi(true);
     if(api===null)throw new Error('Could not check the Telemetry API');
     if(!(api>=45))throw new Error('Requires Telemetry API 45');
-    const agent=restart?
-      (await agentActionRoster(LIVE_AGENT_ROSTER,AbortSignal.timeout(8000)))?.find(row=>row?.name===name):
-      currentAgentNamed(name);
+    const agent=restart?await permissionRestartAgent(name):currentAgentNamed(name);
     if(!agent)throw new Error('Could not verify the agent in the roster');
     if(!samePermissionConversation(agent,original)||['created','category','running',key].some(
       key=>agent[key]!==original[key]))throw new Error('The agent changed. Choose permissions again');

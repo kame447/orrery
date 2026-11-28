@@ -411,6 +411,40 @@ def test_permission_restart_checks_current_conversation_before_exit(roster):
 
 
 @pytest.mark.parametrize('roster', [46], indirect=True)
+@pytest.mark.parametrize(('checks','expected'), [
+    ([(502, []), (502, [])], 'Live roster HTTP 502'),
+    ([(200, []), (200, [])], 'No live roster row for the selected agent'),
+    ([(403, [])], 'Live roster HTTP 403'),
+    ([(502, []), (200, [ACTIVE | {'history_session_id': SID}])], 'The agent changed'),
+])
+def test_permission_restart_read_retry_never_exits_unverified_agent(roster, checks, expected):
+    js, wait, state = roster
+    state['checks'] = list(checks)
+    open_permissions(js, 'CopperFixture', '[data-browser]')
+    js('permissionApply.click()')
+    wait(f"toastEl.textContent.includes({json.dumps(expected)})")
+    assert state['trace'] == [('roster', status, [row['category'] for row in rows])
+                              for status, rows in checks]
+
+
+@pytest.mark.parametrize('roster', [46], indirect=True)
+def test_permission_restart_retries_read_before_bound_preflight_and_exit(roster):
+    js, wait, state = roster
+    state['checks'] = [(502, []), (200, [ACTIVE]), (200, [])]
+    state['stop_checks'] = [EXITED]
+    open_permissions(js, 'CopperFixture', '[data-browser]')
+    js('permissionApply.click()')
+    wait("toastEl.textContent.startsWith('Resume accepted')")
+    path, jump = permission_jump('CopperFixture', ACTIVE_SID, browser_use=True)
+    assert state['trace'] == [
+        ('roster', 502, []), ('roster', 200, ['agent']),
+        (path, jump | {'check_only': True}),
+        ('/api/exit', {'session': 'CopperFixture', 'history_session_id': ACTIVE_SID}),
+        ('roster', 200, []), ('history', 'gone'), (path, jump),
+    ]
+
+
+@pytest.mark.parametrize('roster', [46], indirect=True)
 def test_failed_permission_exit_never_resumes(roster):
     js, wait, state = roster
     state['checks'] = [(200, [ACTIVE])]
